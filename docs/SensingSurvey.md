@@ -1,0 +1,12 @@
+# Sensing Options Survey
+
+Modality | Parts (examples) | Signal shape | Pros | Cons | Notes
+---|---|---|---|---|---
+**Optical (reflective IR)** | TCRT5000/TSSP77038 + emitter | intensity vs. distance | cheap, robust, fast | ambient light, surface albedo | add modulated light + bandpass; shield from stray IR
+**Time‑of‑Flight** | VL53L0X/L1X | mm‑range distance | linear, small | limited range/angles | great for “bow speed”; may need averaging
+**Capacitive (single‑wire)** | wire + high‑Z ADC or dedicated IC (MPR121/AT42QT)** | delta‑C (touch/proximity) | invisible “string”, low parts count | noise, grounding issues | guard traces; body grounding assumptions explicit
+**MaKey‑style touch‑to‑ground** | alligator lead to body/foil | on/off or resistance | ultra‑quick protos, expressive taps | depends on player’s body ground | teach safety & signal path explicitly
+**Piezo / Contact mic** | piezo disk + bias | onset‑rich transients | great for pluck/scrape | fragile mount, needs clamping & rectifier | diode clamp + RC envelope
+**Hall / Flex (later)** | A3144 hall + magnet, flex sensor | position/pressure proxy | alternate mappings | mechanical complexity | optional expansion
+
+> Implementation note: All sensor paths conform to a common `Sensor` interface so gesture & mapping code doesn’t change when you swap hardware.
