@@ -196,6 +196,13 @@ uint8_t next_note() {
   return n;
 }
 
+// Track the sustaining note globally so both the gesture mapper and the serial
+// hot-swapper can see it. Declaring it before the anonymous namespace keeps the
+// linker happy (Teensy's GCC was grumbling when the namespace tried to `extern`
+// something defined later in the file) and makes the flow of control easier to
+// narrate while screen-sharing.
+int current_note = -1;  // -1 == no sustaining note; >=0 stores the active MIDI pitch.
+
 // ---- Serial preset browser ---------------------------------------------------
 namespace {
   static char serial_buf[256];
@@ -281,7 +288,6 @@ namespace {
     // Minimal punk-rock JSON parser: expects {"notes":[..]}
     NoteSet candidate = g_notes;
     if (parse_note_set_json(line, &candidate)) {
-      extern int current_note;
       if (current_note >= 0) {
         MIDI.sendNoteOff(current_note, 0, kChannel);
         emit_gesture_event("release", 0, current_note);
@@ -322,7 +328,6 @@ namespace {
 GestureParams g_params;            // Live copy so calibration tools can tweak at runtime.
 GestureEngine g_engine(g_params);  // Gesture interpreter built from the live parameters.
 Sensor* g_sensor = nullptr;        // Assigned in setup() based on the compile-time flag.
-int current_note = -1;             // -1 == no sustaining note; >=0 stores the active MIDI pitch.
 
 // ---- Setup / Loop ------------------------------------------------------------
 /**
