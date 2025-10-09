@@ -10,6 +10,9 @@
 
 #include <Arduino.h>
 #include <MIDI.h>
+#if defined(TEENSYDUINO)
+#include <usb_serial.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -20,7 +23,15 @@
 #endif
 
 // ---- MIDI setup --------------------------------------------------------------
+#if defined(TEENSYDUINO)
+// Teensy exposes `Serial` as a USB CDC endpoint (usb_serial_class), not a
+// HardwareSerial port. The default MIDI macro assumes a UART, so we override the
+// transport here to bind the 47effects MIDI stack directly to the USB link the
+// classroom laptops actually plug into.
+MIDI_CREATE_INSTANCE(usb_serial_class, Serial, MIDI);
+#else
 MIDI_CREATE_DEFAULT_INSTANCE();
+#endif
 static const uint8_t kChannel = 1;  // 1-16
 
 // ---- Shared types ------------------------------------------------------------
