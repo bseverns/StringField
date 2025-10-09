@@ -68,9 +68,3 @@ traces sensor → gesture → MIDI mappings.
 - **Assumption Ledger:** Update `docs/ASSUMPTION_LEDGER.md` when you lean on a guess.
 - **Reproducibility:** Every measurement has a method file next to it.
 - **Style:** Comments carry *intent* and *trade‑offs*, not just “what.”
-
----
-
-This project inherits the friendly, annotated walkthrough style seen in [MOARkNOBS‑42]—quick maps, ethics, methods, and test gates—and adapts it to a gestural instrument. See that repo for tone/style precedents. 
-
-[MOARkNOBS‑42]: https://github.com/bseverns/MOARkNOBS-42
