@@ -13,3 +13,5 @@
 4. Play: pluck = Note On; relax = Note Off; bow/scrape = CC1 mod depth.
 
 See `examples/quick_proto_note_set/README.md` for the exact scale and the JSON “note set” used by the firmware.
+
+> New in v0.2-dev: you can hot-swap those note sets over Serial by sending `{"notes":[...]} + newline`. The firmware drops any ringing note, loads the new pitches, and prints back what it heard so the whole classroom can follow along.
