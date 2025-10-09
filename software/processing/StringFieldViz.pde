@@ -4,7 +4,7 @@
 
 import processing.data.*;
 
-int w = 960, h = 540;
+int w = 960, h = 600;
 float velocity = 0;
 String gestureState = "IDLE";
 ArrayList<HistoryItem> history = new ArrayList<HistoryItem>();
@@ -14,7 +14,7 @@ PGraphics noiseLayer;
 // setup() is Processing's boot hook. Use it to size the canvas, pick a legible
 // font, and prep the off-screen noise layer we reuse every frame.
 void setup() {
-  size(w, h);
+  size(960, 600);
   frameRate(60);
   textFont(createFont("Inconsolata", 32));
   noiseLayer = createGraphics(w, h);
@@ -92,16 +92,16 @@ void drawVelocityVector() {
 void drawStateLabel() {
   textAlign(LEFT, TOP);
   fill(255);
-  textSize(56);
-  text("gesture: " + gestureState, 60, 40);
+  textSize(42);
+  text("gesture: " + gestureState, 40, 20);
 }
 
 // Rolling ticker of the last few gestures. Doubles as a debugging log when
 // teaching: "see, two scrapes then a bow".
 void drawHistory() {
-  float cellWidth = 140;
-  float baseY = h - 90;
-  textSize(22);
+  float cellWidth = 120;
+  float baseY = h - 60;
+  textSize(16);
   textAlign(CENTER, CENTER);
   for (int i = 0; i < history.size(); i++) {
     HistoryItem item = history.get(i);
