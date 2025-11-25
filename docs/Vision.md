@@ -8,6 +8,6 @@
 - Repairable: local parts, through‑hole where feasible for EDU kits.
 
 **Design Vectors**
-- **Sensing**: optical (reflective IR / time‑of‑flight), capacitive (single‑wire + guard), touch‑to‑ground (MaKey‑style), piezo, hall/flex (later).
-- **Gesture**: pluck onset, bow direction + speed, scrape granularity; later: mutes, harmonics, tremolo/vibrato.
-- **Mapping**: scale‑aware note selection; continuous timbre axes; pressure/proximity → CCs.
+- **Sensing**: optical (reflective IR / time‑of‑flight), capacitive (single‑wire + guard), touch‑to‑ground (MaKey‑style), piezo, hall/flex (later). ToF + piezo stubs now live alongside optical in `firmware/src/main.cpp` with the same pin-first story.
+- **Gesture**: pluck onset, bow direction + speed, scrape granularity; now also mutes, harmonics, tremolo/vibrato so students can perform the vocabulary they already use when describing strings.
+- **Mapping**: scale‑aware note selection; continuous timbre axes; pressure/proximity → CCs; wobble depth → mod/expression or pitch bend. Calibration notes sit next to each threshold so workshops can tune quickly.
