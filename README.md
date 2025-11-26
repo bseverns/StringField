@@ -41,7 +41,7 @@ the in-file comments and gives you quick bullet points to read while the class
 traces sensor → gesture → MIDI mappings.
 
 ## Highlights
-- **Three sensing paths** (optical / capacitive / MaKey‑style touch) with a common `Sensor` interface.
+- **Three sensing paths** (optical / capacitive / MaKey‑style touch) with a common `Sensor` interface and built-in guard timing. Capacitive + MaKey modes ship with grounding instructions and RC discharge guards so a class can flip pins without phantom touches.
 - **Gesture engine** that names pluck/bow/scrape (and leaves room for harmonics, mutes, slides).
 - **Runtime scale swaps** via JSON over Serial — send `{"notes":[...]}` and audition without reflashing.
 - **Gesture debugger views** in Processing + p5.js with velocity vectors and state tickers, projector-ready.
