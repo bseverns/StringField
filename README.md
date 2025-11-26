@@ -75,7 +75,7 @@ Calibration micro-rituals (two minutes per class):
 - v0.1: Quick‑proto playable (pentatonic), one sensor path, minimal viz
 - v0.2: Swap sensor paths without changing mappings (single interface)
 - v0.3: Bow detection + tremolo/vibrato heuristics
-- v0.4: OSC bridge & educator packet
+- v0.4: OSC bridge & educator packet (see [`docs/OSCSerialBridge.md`](docs/OSCSerialBridge.md) + [`docs/BridgeLessonHandouts.md`](docs/BridgeLessonHandouts.md))
 - v1.0: Community‑tested kits and lesson plans
 
 > See `docs/Roadmap.md` for dated milestones and test gates.
