@@ -13,15 +13,13 @@
 #if defined(TEENSYDUINO)
 #include <usb_serial.h>
 #endif
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
 // ---- Compile-time selection of sensing path ---------------------------------
 // Define exactly one of these in platformio.ini build_flags, e.g. -D SENSOR_OPTICAL
-// Classroom-ready paths: optical (baseline), capacitive (calibrated/guarded),
-// MaKey-style touch-to-ground (debounced + grounded). If a student adds a new
-// modality, keep the interface and name your trade-offs in the comments below.
-#if !defined(SENSOR_OPTICAL) && !defined(SENSOR_CAPACITIVE) && !defined(SENSOR_MAKEY)
+#if !defined(SENSOR_OPTICAL) && !defined(SENSOR_CAPACITIVE) && !defined(SENSOR_MAKEY) && !defined(SENSOR_TOF) && !defined(SENSOR_PIEZO)
   #define SENSOR_OPTICAL 1  // default demo
 #endif
 
@@ -195,6 +193,54 @@ class MakeySensorGuarded : public Sensor {
 };
 #endif
 
+// ---- Time-of-Flight proximity sketch ----------------------------------------
+// This intentionally mirrors the simple optical stub so the same calibration
+// flow works: pick a pin, read raw depth, map to 0..1, and narrate every tradeoff.
+#ifdef SENSOR_TOF
+class TimeOfFlightSensor : public Sensor {
+ public:
+  void begin() override {
+    // Pin/PWR notes: real ToF breakouts (VL53L0X, TMF8801, etc.) use I2C. Here we
+    // map the analog envelope from a helper board onto A2 to keep the demo
+    // solderable and readable in-class. Swap the pin when moving to a true I2C
+    // driver; keep the function shape identical so GestureEngine stays agnostic.
+    pinMode(A2, INPUT);
+  }
+  SensorSample read() override {
+    int raw = analogRead(A2);  // e.g., 0..1023. Replace with mm reading / 4096.0 for I2C parts.
+    // Calibrate like a lab notebook: expose the bias and smoothing knobs.
+    static float y = 0.0f;
+    float x = constrain(raw / 1023.0f, 0.0f, 1.0f);
+    y = 0.85f * y + 0.15f * x;  // slightly faster than optical to catch hand waves
+    return {y, micros()};
+  }
+};
+#endif
+
+// ---- Piezo contact microphone sketch ----------------------------------------
+// The piezo is the scrappy friend of the lab: it needs a bias resistor and a
+// clamp diode. We AC-couple by subtracting the mid-rail estimate so this class
+// outputs a unipolar 0..1 envelope the GestureEngine can digest.
+#ifdef SENSOR_PIEZO
+class PiezoSensor : public Sensor {
+ public:
+  void begin() override {
+    pinMode(A3, INPUT);
+    pinMode(13, OUTPUT);  // re-use the onboard LED to show when peaks land
+  }
+  SensorSample read() override {
+    static float bias = 0.5f;  // mid-rail estimate in normalized units
+    int raw = analogRead(A3);
+    float x = constrain(raw / 1023.0f, 0.0f, 1.0f);
+    bias = 0.999f * bias + 0.001f * x;  // slow bias tracker; tweak in calibration session
+    float swing = fabs(x - bias) * 2.2f;  // exaggerate small hits; clip later
+    float env = constrain(swing, 0.0f, 1.0f);
+    digitalWrite(13, env > 0.4f);  // punk-rock peak lamp
+    return {env, micros()};
+  }
+};
+#endif
+
 // ---- Gesture Engine ----------------------------------------------------------
 // INTENT: Detect three coarse gestures using only a thresholded stream. Keep
 // all constants named and easy to calibrate.
@@ -209,9 +255,22 @@ struct GestureParams {
   float off_thresh = 0.40f;       // falling below => "release"
   uint32_t min_retrigger_us = 60000;  // 60ms guard against double plucks
   uint32_t scrape_window_us = 40000;  // <40ms between mini-onsets => scrape grain
+
+  // Extended gestures
+  float harmonic_peak_min = 0.35f;    // light touch floor; tweak while listening for chime partials
+  float harmonic_peak_max = 0.65f;    // light touch ceiling
+  uint32_t harmonic_hold_us = 70000;  // hold a light touch this long → call it harmonic
+
+  float mute_peak_thresh = 0.25f;     // low-amplitude contacts that end early => muted articulation
+  uint32_t mute_window_us = 50000;    // release within this window → treat as mute instead of pluck-off
+
+  float tremolo_min_delta = 0.06f;    // minimum swing to count as one wobble
+  uint32_t tremolo_max_period_us = 30000;  // how fast the sign flips must be (<33 Hz)
+  uint8_t wobble_goal = 4;            // how many flips before we declare tremolo/vibrato
+  float vibrato_depth_min = 0.15f;    // deeper swings ⇒ vibrato; shallow ⇒ tremolo
 };
 
-enum class Gesture { Idle, Pluck, Bow, Scrape };
+enum class Gesture { Idle, Pluck, Bow, Scrape, Harmonic, Muted, Tremolo, Vibrato };
 
 /**
  * Converts a stream of SensorSamples into semantic gestures. The design goal
@@ -228,15 +287,71 @@ class GestureEngine {
     if (!contact_ && s.value >= p_.on_thresh) contact_ = true;
     if (contact_ && s.value <= p_.off_thresh) contact_ = false;
 
+    // Update per-contact tracking for extended gestures
+    if (contact_ && !prev) {
+      contact_start_us_ = s.micros;
+      peak_value_ = s.value;
+      wobble_min_ = s.value;
+      wobble_max_ = s.value;
+      wobble_count_ = 0;
+      last_wobble_us_ = s.micros;
+      last_direction_up_ = true;
+      harmonic_called_ = false;
+    }
+    if (contact_) {
+      peak_value_ = max(peak_value_, s.value);
+      wobble_min_ = min(wobble_min_, s.value);
+      wobble_max_ = max(wobble_max_, s.value);
+    }
+
+    // Tremolo/vibrato wobble detection: count sign changes when the swing is loud enough.
+    float delta = s.value - last_value_;
+    bool rising = delta >= 0.0f;
+    if (fabs(delta) >= p_.tremolo_min_delta && contact_) {
+      if (rising != last_direction_up_) {
+        uint32_t wobble_dt = s.micros - last_wobble_us_;
+        if (wobble_dt <= p_.tremolo_max_period_us) {
+          ++wobble_count_;
+        } else {
+          wobble_count_ = 1;  // reset if too slow; still count current flip
+        }
+        last_wobble_us_ = s.micros;
+        last_direction_up_ = rising;
+      }
+    }
+    last_value_ = s.value;
+
     // Onset detection
     Gesture g = Gesture::Idle;
     if (contact_ && !prev) {
       uint32_t dt = s.micros - last_onset_us_;
-      g = (dt < p_.scrape_window_us) ? Gesture::Scrape : Gesture::Pluck;
-      last_onset_us_ = s.micros;
+      if (dt < p_.min_retrigger_us) {
+        g = Gesture::Idle;  // debounce double strike
+      } else {
+        g = (dt < p_.scrape_window_us) ? Gesture::Scrape : Gesture::Pluck;
+        last_onset_us_ = s.micros;
+      }
     } else if (contact_) {
-      // Sustained contact → treat as bow (continuous control)
-      g = Gesture::Bow;
+      // If the performer holds a light touch for long enough, narrate it as a harmonic.
+      if (!harmonic_called_ &&
+          (s.micros - contact_start_us_) > p_.harmonic_hold_us &&
+          peak_value_ >= p_.harmonic_peak_min &&
+          peak_value_ <= p_.harmonic_peak_max) {
+        harmonic_called_ = true;
+        g = Gesture::Harmonic;
+      } else if (wobble_count_ >= p_.wobble_goal) {
+        float depth = wobble_max_ - wobble_min_;
+        g = (depth >= p_.vibrato_depth_min) ? Gesture::Vibrato : Gesture::Tremolo;
+      } else {
+        // Sustained contact → treat as bow (continuous control)
+        g = Gesture::Bow;
+      }
+    } else if (prev && !contact_) {
+      // Quick-touch deadening => mute gesture; otherwise idle falls through to release handling in loop().
+      uint32_t hold = s.micros - contact_start_us_;
+      if (hold <= p_.mute_window_us || peak_value_ <= p_.mute_peak_thresh) {
+        g = Gesture::Muted;
+      }
     }
     return g;
   }
@@ -245,6 +360,15 @@ class GestureEngine {
     GestureParams p_;
     bool contact_ = false;
     uint32_t last_onset_us_ = 0;
+    uint32_t contact_start_us_ = 0;
+    float peak_value_ = 0.0f;
+    float last_value_ = 0.0f;
+    float wobble_min_ = 1.0f;
+    float wobble_max_ = 0.0f;
+    uint8_t wobble_count_ = 0;
+    uint32_t last_wobble_us_ = 0;
+    bool last_direction_up_ = true;
+    bool harmonic_called_ = false;
 };
 
 // ---- Mapping -----------------------------------------------------------------
@@ -428,7 +552,11 @@ void setup() {
   #elif defined(SENSOR_CAPACITIVE)
     static CapacitiveSensorCalibrated sensor_impl;
   #elif defined(SENSOR_MAKEY)
-    static MakeySensorGuarded sensor_impl;
+    static MakeySensorDemo sensor_impl;
+  #elif defined(SENSOR_TOF)
+    static TimeOfFlightSensor sensor_impl;
+  #elif defined(SENSOR_PIEZO)
+    static PiezoSensor sensor_impl;
   #endif
   g_sensor = &sensor_impl;
   g_sensor->begin();
@@ -468,6 +596,43 @@ void loop() {
       MIDI.sendNoteOn(note, 50, kChannel);
       MIDI.sendNoteOff(note, 0, kChannel);
       emit_gesture_event("scrape", 50, note);
+      break;
+    }
+    case Gesture::Harmonic: {
+      // Narration cue: "harmonic → glassy octave above"; we bias the pitch up so
+      // students *hear* the light touch difference.
+      if (current_note >= 0) {
+        MIDI.sendNoteOff(current_note, 0, kChannel);
+      }
+      uint8_t base = next_note();
+      uint8_t harmonic_note = (uint8_t)constrain(base + 12, 0, 127);
+      current_note = harmonic_note;
+      uint8_t vel = 96;
+      MIDI.sendNoteOn(harmonic_note, vel, kChannel);
+      emit_gesture_event("harmonic", vel, harmonic_note);
+      break;
+    }
+    case Gesture::Muted: {
+      // Narration cue: "mute → note-off + short whisper". Great for damping riffs in class.
+      if (current_note >= 0) {
+        MIDI.sendNoteOff(current_note, 0, kChannel);
+        emit_gesture_event("mute", 0, current_note);
+        current_note = -1;
+      }
+      break;
+    }
+    case Gesture::Tremolo: {
+      // Quick amplitude wobbles: map to Expression so synths get a trembling loudness lane.
+      uint8_t cc = (uint8_t)constrain(s.value * 127, 0, 127);
+      MIDI.sendControlChange(11, cc, kChannel);
+      emit_gesture_event("tremolo", cc, current_note);
+      break;
+    }
+    case Gesture::Vibrato: {
+      // Deeper wobble: swing pitch bend around center. Teensy MIDI uses +/-8192 range.
+      int bend = (int)((s.value - 0.5f) * 2.0f * 8191);  // center on 0
+      MIDI.sendPitchBend(bend, kChannel);
+      emit_gesture_event("vibrato", (uint8_t)constrain(s.value * 127, 0, 127), current_note);
       break;
     }
     case Gesture::Bow: {
