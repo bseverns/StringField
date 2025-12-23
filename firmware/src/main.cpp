@@ -19,8 +19,8 @@
 
 // ---- Compile-time selection of sensing path ---------------------------------
 // Define exactly one of these in platformio.ini build_flags, e.g. -D SENSOR_OPTICAL
-#if !defined(SENSOR_OPTICAL) && !defined(SENSOR_CAPACITIVE) && !defined(SENSOR_MAKEY) && !defined(SENSOR_TOF) && !defined(SENSOR_PIEZO)
-  #define SENSOR_OPTICAL 1  // default demo
+#if !defined(SENSOR_OPTICAL) && !defined(SENSOR_CAPACITIVE) && !defined(SENSOR_MAKEY) && !defined(SENSOR_TOF) && !defined(SENSOR_PIEZO) && !defined(SENSOR_PIR) && !defined(SENSOR_ELECTRET) && !defined(SENSOR_I2S_MIC)
+  #define SENSOR_OPTICAL 1  // default demo; explicitly include new ToF/Piezo/PIR/Mic options above
 #endif
 
 // ---- MIDI setup --------------------------------------------------------------
@@ -208,10 +208,14 @@ class TimeOfFlightSensor : public Sensor {
   }
   SensorSample read() override {
     int raw = analogRead(A2);  // e.g., 0..1023. Replace with mm reading / 4096.0 for I2C parts.
-    // Calibrate like a lab notebook: expose the bias and smoothing knobs.
+    // Calibrate like a lab notebook: expose the bias and smoothing knobs. Students
+    // can anchor a “hand at 15 cm” pose and tune the filter and scaling live.
     static float y = 0.0f;
     float x = constrain(raw / 1023.0f, 0.0f, 1.0f);
     y = 0.85f * y + 0.15f * x;  // slightly faster than optical to catch hand waves
+    // Cheap floor clamp for noisy rooms; edit in class if your sensor never
+    // truly rests at 0.0 while idle.
+    if (y < 0.02f) y = 0.0f;
     return {y, micros()};
   }
 };
@@ -241,6 +245,144 @@ class PiezoSensor : public Sensor {
 };
 #endif
 
+// ---- Passive infrared (PIR) motion sketch ----------------------------------
+// PIR modules latch high when they detect warm bodies moving. We deglitch the
+// output and add a slow decay so the serial plots show a “motion envelope”
+// instead of binary edges. Keep the warm-up and guard intervals narratable.
+#ifdef SENSOR_PIR
+class PirSensor : public Sensor {
+ public:
+  void begin() override {
+    pinMode(kPirPin, INPUT);  // many PIR boards expose a digital gate; some are 3.3 V only
+    warmup_start_ms_ = millis();
+  }
+
+  SensorSample read() override {
+    uint32_t now_us = micros();
+    if (!warmed_up()) {
+      // Most PIRs need 10–30 seconds to stabilize; keep the plot calm until then.
+      last_sample_ = {0.0f, now_us};
+      return last_sample_;
+    }
+
+    bool raw_motion = digitalRead(kPirPin) == HIGH;
+    float x = raw_motion ? 1.0f : 0.0f;
+    // Exponential decay so a single person pass shows as a hill, not a square wave.
+    env_ = 0.92f * env_ + 0.08f * x;
+    // Guard window to avoid rapid re-triggers from onboard comparators that chatter.
+    if (now_us - last_read_us_ < guard_us_) return last_sample_;
+    last_read_us_ = now_us;
+
+    last_sample_ = {env_, now_us};
+    return last_sample_;
+  }
+
+ private:
+  static const uint8_t kPirPin = 4;    // swap per build; keep on an interrupt-capable pin if you later move to ISRs
+  const uint32_t warmup_ms_ = 30000;   // adjust if your module stabilizes faster/slower
+  const uint32_t guard_us_ = 20000;    // 20 ms to smooth comparator chatter
+
+  uint32_t warmup_start_ms_ = 0;
+  float env_ = 0.0f;
+  uint32_t last_read_us_ = 0;
+  SensorSample last_sample_{0.0f, 0};
+
+  bool warmed_up() const { return (millis() - warmup_start_ms_) > warmup_ms_; }
+};
+#endif
+
+// ---- Electret microphone (analog envelope) ----------------------------------
+// An electret capsule + bias resistor into an analog pin gives an AC waveform.
+// We track the DC bias, rectify, and expose a smoothed envelope for the
+// GestureEngine. This keeps calibration visible: bias speed, gain, and clamp.
+#ifdef SENSOR_ELECTRET
+class ElectretMicSensor : public Sensor {
+ public:
+  void begin() override {
+    pinMode(kMicPin, INPUT);
+    // Pre-charge bias with a tiny average to avoid a jump on first loop.
+    float seed = 0.5f;
+    for (int i = 0; i < 8; ++i) {
+      seed = 0.75f * seed + 0.25f * sample_raw();
+      delay(2);
+    }
+    bias_ = seed;
+  }
+
+  SensorSample read() override {
+    uint32_t now = micros();
+    float x = sample_raw();
+    // AC coupling: follow bias slowly, measure swing fast.
+    bias_ = 0.9994f * bias_ + 0.0006f * x;  // tweak live if the room hums
+    float swing = fabs(x - bias_) * gain_;
+    env_ = 0.88f * env_ + 0.12f * constrain(swing, 0.0f, 1.0f);
+    // Small floor clamp to avoid whisper-noise. Bump lower if you need pianissimo.
+    if (env_ < 0.01f) env_ = 0.0f;
+    return {env_, now};
+  }
+
+ private:
+  static const uint8_t kMicPin = A4;  // analog envelope input; keep wiring short
+  const float gain_ = 3.5f;           // adjust alongside bias speed during calibration
+
+  float bias_ = 0.5f;
+  float env_ = 0.0f;
+
+  float sample_raw() { return constrain(analogRead(kMicPin) / 1023.0f, 0.0f, 1.0f); }
+};
+#endif
+
+// ---- I2S microphone (digital PDM/PCM) ---------------------------------------
+// Some classrooms already have digital mics (SPH0645, ICS-43434). We read a
+// burst of samples from the I2S bus, compute an envelope, and expose the same
+// 0..1 intensity the GestureEngine expects. Swap sample rate / bit depth per
+// board; the smoothing constants are meant to be twiddled aloud.
+#ifdef SENSOR_I2S_MIC
+#include <I2S.h>
+
+class I2SMicSensor : public Sensor {
+ public:
+  void begin() override {
+    // Default to 16 kHz mono; adjust for your part. If begin() fails, keep
+    // reading zeros so the rest of the firmware stays predictable in class.
+    if (!I2S.begin(I2S_PHILIPS_MODE, sample_rate_, bits_)) {
+      ready_ = false;
+    } else {
+      ready_ = true;
+    }
+  }
+
+  SensorSample read() override {
+    uint32_t now = micros();
+    if (!ready_) return {0.0f, now};
+
+    int32_t total = 0;
+    int16_t sample = 0;
+    uint16_t count = 0;
+    while (I2S.available() && count < window_samples_) {
+      sample = static_cast<int16_t>(I2S.read());
+      total += abs(sample);
+      ++count;
+    }
+
+    float avg = (count > 0) ? (total / static_cast<float>(count)) : 0.0f;
+    // Normalize 16-bit PCM to 0..1 and overdrive slightly for quiet rooms.
+    float normalized = constrain((avg / 32768.0f) * gain_, 0.0f, 1.0f);
+    env_ = 0.9f * env_ + 0.1f * normalized;
+    return {env_, now};
+  }
+
+ private:
+  const int sample_rate_ = 16000;
+  const int bits_ = 16;
+  const uint16_t window_samples_ = 64;  // ~4 ms at 16 kHz; short for fast articulation
+  const float gain_ = 2.5f;
+
+  bool ready_ = false;
+  float env_ = 0.0f;
+};
+#endif
+
 // ---- Gesture Engine ----------------------------------------------------------
 // INTENT: Detect three coarse gestures using only a thresholded stream. Keep
 // all constants named and easy to calibrate.
@@ -256,16 +398,19 @@ struct GestureParams {
   uint32_t min_retrigger_us = 60000;  // 60ms guard against double plucks
   uint32_t scrape_window_us = 40000;  // <40ms between mini-onsets => scrape grain
 
-  // Extended gestures
+  // Extended gestures (all narratable in class; edit + reflash or push via Serial)
   float harmonic_peak_min = 0.35f;    // light touch floor; tweak while listening for chime partials
   float harmonic_peak_max = 0.65f;    // light touch ceiling
   uint32_t harmonic_hold_us = 70000;  // hold a light touch this long → call it harmonic
+  float harmonic_variation_eps = 0.05f;  // how still the envelope must be to count as a harmonic touch
 
   float mute_peak_thresh = 0.25f;     // low-amplitude contacts that end early => muted articulation
   uint32_t mute_window_us = 50000;    // release within this window → treat as mute instead of pluck-off
+  float mute_release_thresh = 0.15f;  // if the release falls below this before rising again, call it a mute
 
   float tremolo_min_delta = 0.06f;    // minimum swing to count as one wobble
   uint32_t tremolo_max_period_us = 30000;  // how fast the sign flips must be (<33 Hz)
+  uint32_t tremolo_grace_us = 8000;        // ignore micro-wobbles right at onset; gives players a breath
   uint8_t wobble_goal = 4;            // how many flips before we declare tremolo/vibrato
   float vibrato_depth_min = 0.15f;    // deeper swings ⇒ vibrato; shallow ⇒ tremolo
 };
@@ -297,17 +442,24 @@ class GestureEngine {
       last_wobble_us_ = s.micros;
       last_direction_up_ = true;
       harmonic_called_ = false;
+      modulation_called_ = false;
+      mute_candidate_ = false;
+      contact_state_ = ContactState::Attacking;
     }
     if (contact_) {
       peak_value_ = max(peak_value_, s.value);
       wobble_min_ = min(wobble_min_, s.value);
       wobble_max_ = max(wobble_max_, s.value);
+      if (contact_state_ == ContactState::Attacking &&
+          (s.micros - contact_start_us_) > p_.tremolo_grace_us) {
+        contact_state_ = ContactState::Sustaining;
+      }
     }
 
     // Tremolo/vibrato wobble detection: count sign changes when the swing is loud enough.
     float delta = s.value - last_value_;
     bool rising = delta >= 0.0f;
-    if (fabs(delta) >= p_.tremolo_min_delta && contact_) {
+    if (fabs(delta) >= p_.tremolo_min_delta && contact_state_ == ContactState::Sustaining) {
       if (rising != last_direction_up_) {
         uint32_t wobble_dt = s.micros - last_wobble_us_;
         if (wobble_dt <= p_.tremolo_max_period_us) {
@@ -332,24 +484,30 @@ class GestureEngine {
         last_onset_us_ = s.micros;
       }
     } else if (contact_) {
-      // If the performer holds a light touch for long enough, narrate it as a harmonic.
-      if (!harmonic_called_ &&
-          (s.micros - contact_start_us_) > p_.harmonic_hold_us &&
-          peak_value_ >= p_.harmonic_peak_min &&
-          peak_value_ <= p_.harmonic_peak_max) {
+      // Harmonics: require a light touch that stays stable. This prevents loud plucks
+      // from being mis-labeled when the player lingers.
+      bool in_harmonic_band = peak_value_ >= p_.harmonic_peak_min && peak_value_ <= p_.harmonic_peak_max;
+      float wobble_depth = wobble_max_ - wobble_min_;
+      if (!harmonic_called_ && in_harmonic_band && wobble_depth <= p_.harmonic_variation_eps &&
+          (s.micros - contact_start_us_) > p_.harmonic_hold_us) {
         harmonic_called_ = true;
         g = Gesture::Harmonic;
-      } else if (wobble_count_ >= p_.wobble_goal) {
-        float depth = wobble_max_ - wobble_min_;
-        g = (depth >= p_.vibrato_depth_min) ? Gesture::Vibrato : Gesture::Tremolo;
+      } else if (!modulation_called_ && wobble_count_ >= p_.wobble_goal) {
+        modulation_called_ = true;  // only announce once per contact so the serial log stays readable
+        g = (wobble_depth >= p_.vibrato_depth_min) ? Gesture::Vibrato : Gesture::Tremolo;
       } else {
         // Sustained contact → treat as bow (continuous control)
         g = Gesture::Bow;
       }
+      // Track whether the player is drifting toward a mute: low peak and falling envelope.
+      if (peak_value_ <= p_.mute_peak_thresh && s.value <= p_.mute_release_thresh) {
+        mute_candidate_ = true;
+      }
     } else if (prev && !contact_) {
-      // Quick-touch deadening => mute gesture; otherwise idle falls through to release handling in loop().
+      contact_state_ = ContactState::Released;
       uint32_t hold = s.micros - contact_start_us_;
-      if (hold <= p_.mute_window_us || peak_value_ <= p_.mute_peak_thresh) {
+      // Quick-touch deadening => mute gesture; otherwise idle falls through to release handling in loop().
+      if (hold <= p_.mute_window_us || mute_candidate_) {
         g = Gesture::Muted;
       }
     }
@@ -357,6 +515,7 @@ class GestureEngine {
   }
 
  private:
+    enum class ContactState { Released, Attacking, Sustaining };
     GestureParams p_;
     bool contact_ = false;
     uint32_t last_onset_us_ = 0;
@@ -369,6 +528,9 @@ class GestureEngine {
     uint32_t last_wobble_us_ = 0;
     bool last_direction_up_ = true;
     bool harmonic_called_ = false;
+    bool modulation_called_ = false;
+    bool mute_candidate_ = false;
+    ContactState contact_state_ = ContactState::Released;
 };
 
 // ---- Mapping -----------------------------------------------------------------
