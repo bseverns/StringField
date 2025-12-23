@@ -17,13 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "gesture_engine.h"
-
-// ---- Compile-time selection of sensing path ---------------------------------
-// Define exactly one of these in platformio.ini build_flags, e.g. -D SENSOR_OPTICAL
-#if !defined(SENSOR_OPTICAL) && !defined(SENSOR_CAPACITIVE) && !defined(SENSOR_MAKEY) && !defined(SENSOR_TOF) && !defined(SENSOR_PIEZO) && !defined(SENSOR_PIR) && !defined(SENSOR_ELECTRET) && !defined(SENSOR_I2S_MIC)
-  #define SENSOR_OPTICAL 1  // default demo; explicitly include new ToF/Piezo/PIR/Mic options above
-#endif
+#include "sensor.h"
 
 // ---- MIDI setup --------------------------------------------------------------
 #if defined(TEENSYDUINO)
@@ -37,338 +31,155 @@ MIDI_CREATE_DEFAULT_INSTANCE();
 #endif
 static const uint8_t kChannel = 1;  // 1-16
 
-// Abstract sensor interface so gesture code doesn't care which hardware we use.
+// ---- Gesture Engine ----------------------------------------------------------
+// INTENT: Detect three coarse gestures using only a thresholded stream. Keep
+// all constants named and easy to calibrate.
 /**
- * Abstract sensing interface. The firmware intentionally hides the details of
- * which physical stack is active so students can swap implementations without
- * rewriting the gesture logic. All derived classes *must* implement `begin`
- * (to configure pins/ICs) and `read` (to produce a normalized SensorSample).
+ * Tunable gesture thresholds. Treat this like a calibration worksheet: these
+ * numbers start as defaults and should be tweaked with students while watching
+ * the debugger. The hysteresis (`on_thresh` / `off_thresh`) keeps the contact
+ * state stable; the time windows set how fast is "scrape" versus a fresh pluck.
  */
-class Sensor {
- public:
-  virtual void begin() = 0;
-  virtual SensorSample read() = 0;
-  virtual ~Sensor() {}
+struct GestureParams {
+  float on_thresh = 0.55f;        // crossing above => "contact"
+  float off_thresh = 0.40f;       // falling below => "release"
+  uint32_t min_retrigger_us = 60000;  // 60ms guard against double plucks
+  uint32_t scrape_window_us = 40000;  // <40ms between mini-onsets => scrape grain
+
+  // Extended gestures (all narratable in class; edit + reflash or push via Serial)
+  float harmonic_peak_min = 0.35f;    // light touch floor; tweak while listening for chime partials
+  float harmonic_peak_max = 0.65f;    // light touch ceiling
+  uint32_t harmonic_hold_us = 70000;  // hold a light touch this long → call it harmonic
+  float harmonic_variation_eps = 0.05f;  // how still the envelope must be to count as a harmonic touch
+
+  float mute_peak_thresh = 0.25f;     // low-amplitude contacts that end early => muted articulation
+  uint32_t mute_window_us = 50000;    // release within this window → treat as mute instead of pluck-off
+  float mute_release_thresh = 0.15f;  // if the release falls below this before rising again, call it a mute
+
+  float tremolo_min_delta = 0.06f;    // minimum swing to count as one wobble
+  uint32_t tremolo_max_period_us = 30000;  // how fast the sign flips must be (<33 Hz)
+  uint32_t tremolo_grace_us = 8000;        // ignore micro-wobbles right at onset; gives players a breath
+  uint8_t wobble_goal = 4;            // how many flips before we declare tremolo/vibrato
+  float vibrato_depth_min = 0.15f;    // deeper swings ⇒ vibrato; shallow ⇒ tremolo
 };
 
-// ---- Optical demo sensor (placeholder) --------------------------------------
-#ifdef SENSOR_OPTICAL
-class OpticalSensor : public Sensor {
- public:
-  void begin() override {
-    // INTENT: keep pin assignments centralized; swapping pins should not touch logic.
-    pinMode(A0, INPUT);    // phototransistor on A0 (via resistor)
-    pinMode(13, OUTPUT);   // onboard LED for heartbeat
-  }
-  SensorSample read() override {
-    int raw = analogRead(A0);  // 0..1023 on Teensy (will be 12-bit on some MCUs)
-    // Map raw to 0..1 with a crude low-pass to tame flicker; tune in calibration.
-    static float y = 0.0f;
-    float x = constrain(raw / 1023.0f, 0.0f, 1.0f);
-    y = 0.9f * y + 0.1f * x;
-    digitalWrite(13, (millis() >> 6) & 1);  // slow blink to show life
-    return {y, micros()};
-  }
-};
-#endif
+enum class Gesture { Idle, Pluck, Bow, Scrape, Harmonic, Muted, Tremolo, Vibrato };
 
-// ---- Capacitive / MaKey implementations --------------------------------------
-#ifdef SENSOR_CAPACITIVE
 /**
- * RC-based capacitive read with built-in calibration and guard timing.
- *
- * Why the ceremony?
- *   - We discharge the pad between reads so the RC ramp starts from 0 V.
- *   - We enforce a guard window so back-to-back reads do not ghost from the
- *     previous charge.
- *   - We continuously re-learn the baseline so humid rooms do not tank the
- *     signal. Treat `settle_us_` and `guard_us_` as knobs to narrate in class.
+ * Converts a stream of SensorSamples into semantic gestures. The design goal
+ * is to keep the rules audible and debuggable. There is no hidden machine
+ * learning here—just explicit timing and hysteresis—so a class can reason about
+ * why a particular motion produced "bow" versus "pluck".
  */
-class CapacitiveSensorCalibrated : public Sensor {
+class GestureEngine {
  public:
-  void begin() override {
-    pinMode(kPadPin, INPUT);
-    // Pre-fill the baseline with a quick average so the first loop iteration
-    // does not spike. Students can watch this in the serial plotter.
-    uint32_t sum = 0;
-    for (int i = 0; i < 16; ++i) {
-      sum += measure_raw();
-      delay(2);
+  GestureEngine(const GestureParams& p) : p_(p) {}
+  Gesture update(const SensorSample& s) {
+    // Hysteresis for contact state
+    bool prev = contact_;
+    if (!contact_ && s.value >= p_.on_thresh) contact_ = true;
+    if (contact_ && s.value <= p_.off_thresh) contact_ = false;
+
+    // Update per-contact tracking for extended gestures
+    if (contact_ && !prev) {
+      contact_start_us_ = s.micros;
+      peak_value_ = s.value;
+      wobble_min_ = s.value;
+      wobble_max_ = s.value;
+      wobble_count_ = 0;
+      last_wobble_us_ = s.micros;
+      last_direction_up_ = true;
+      harmonic_called_ = false;
+      modulation_called_ = false;
+      mute_candidate_ = false;
+      contact_state_ = ContactState::Attacking;
     }
-    baseline_ = sum / 16.0f;
-  }
+    if (contact_) {
+      peak_value_ = max(peak_value_, s.value);
+      wobble_min_ = min(wobble_min_, s.value);
+      wobble_max_ = max(wobble_max_, s.value);
+      if (contact_state_ == ContactState::Attacking &&
+          (s.micros - contact_start_us_) > p_.tremolo_grace_us) {
+        contact_state_ = ContactState::Sustaining;
+      }
+    }
 
-  SensorSample read() override {
-    uint32_t now = micros();
-    // Guard: if a previous read happened too recently, reuse the last sample.
-    if (now - last_read_us_ < guard_us_) return last_sample_;
-    last_read_us_ = now;
+    // Tremolo/vibrato wobble detection: count sign changes when the swing is loud enough.
+    float delta = s.value - last_value_;
+    bool rising = delta >= 0.0f;
+    if (fabs(delta) >= p_.tremolo_min_delta && contact_state_ == ContactState::Sustaining) {
+      if (rising != last_direction_up_) {
+        uint32_t wobble_dt = s.micros - last_wobble_us_;
+        if (wobble_dt <= p_.tremolo_max_period_us) {
+          ++wobble_count_;
+        } else {
+          wobble_count_ = 1;  // reset if too slow; still count current flip
+        }
+        last_wobble_us_ = s.micros;
+        last_direction_up_ = rising;
+      }
+    }
+    last_value_ = s.value;
 
-    uint16_t raw = measure_raw();
-    // Slow baseline drift follower; this resists humidity swings but keeps
-    // quick touches visible. The rate is intentionally tiny for classroom calm.
-    baseline_ = 0.999f * baseline_ + 0.001f * raw;
-    float delta = raw - baseline_;
-    float normalized = constrain(delta / sensitivity_scale_, 0.0f, 1.0f);
-    last_sample_ = {normalized, now};
-    return last_sample_;
+    // Onset detection
+    Gesture g = Gesture::Idle;
+    if (contact_ && !prev) {
+      uint32_t dt = s.micros - last_onset_us_;
+      if (dt < p_.min_retrigger_us) {
+        g = Gesture::Idle;  // debounce double strike
+      } else {
+        g = (dt < p_.scrape_window_us) ? Gesture::Scrape : Gesture::Pluck;
+        last_onset_us_ = s.micros;
+      }
+    } else if (contact_) {
+      // Harmonics: require a light touch that stays stable. This prevents loud plucks
+      // from being mis-labeled when the player lingers.
+      bool in_harmonic_band = peak_value_ >= p_.harmonic_peak_min && peak_value_ <= p_.harmonic_peak_max;
+      float wobble_depth = wobble_max_ - wobble_min_;
+      if (!harmonic_called_ && in_harmonic_band && wobble_depth <= p_.harmonic_variation_eps &&
+          (s.micros - contact_start_us_) > p_.harmonic_hold_us) {
+        harmonic_called_ = true;
+        g = Gesture::Harmonic;
+      } else if (!modulation_called_ && wobble_count_ >= p_.wobble_goal) {
+        modulation_called_ = true;  // only announce once per contact so the serial log stays readable
+        g = (wobble_depth >= p_.vibrato_depth_min) ? Gesture::Vibrato : Gesture::Tremolo;
+      } else {
+        // Sustained contact → treat as bow (continuous control)
+        g = Gesture::Bow;
+      }
+      // Track whether the player is drifting toward a mute: low peak and falling envelope.
+      if (peak_value_ <= p_.mute_peak_thresh && s.value <= p_.mute_release_thresh) {
+        mute_candidate_ = true;
+      }
+    } else if (prev && !contact_) {
+      contact_state_ = ContactState::Released;
+      uint32_t hold = s.micros - contact_start_us_;
+      // Quick-touch deadening => mute gesture; otherwise idle falls through to release handling in loop().
+      if (hold <= p_.mute_window_us || mute_candidate_) {
+        g = Gesture::Muted;
+      }
+    }
+    return g;
   }
 
  private:
-  static const uint8_t kPadPin = A1;  // pad → A1, driven against GND bracelet
-  const uint16_t settle_us_ = 50;     // let the pullup charge the pad before sampling
-  const uint16_t discharge_us_ = 200; // drain to ground so each read starts clean
-  const uint16_t guard_us_ = 1000;    // 1ms guard between reads to avoid ghosting
-  const float sensitivity_scale_ = 400.0f;  // tweak alongside on/off thresholds
-
-  float baseline_ = 0.0f;
-  uint32_t last_read_us_ = 0;
-  SensorSample last_sample_{0.0f, 0};
-
-  uint16_t measure_raw() {
-    // Drain any residual charge. This assumes the performer is grounded via a
-    // wrist strap or shared foil so the pad always has a reference.
-    pinMode(kPadPin, OUTPUT);
-    digitalWrite(kPadPin, LOW);
-    delayMicroseconds(discharge_us_);
-
-    // Charge and measure the RC rise time using the built-in ADC. On Teensy
-    // this is ~10-bit; if your board has higher resolution, keep the 0..1023
-    // normalize above and narrate the change.
-    pinMode(kPadPin, INPUT_PULLUP);
-    delayMicroseconds(settle_us_);
-    return analogRead(kPadPin);
-  }
+    enum class ContactState { Released, Attacking, Sustaining };
+    GestureParams p_;
+    bool contact_ = false;
+    uint32_t last_onset_us_ = 0;
+    uint32_t contact_start_us_ = 0;
+    float peak_value_ = 0.0f;
+    float last_value_ = 0.0f;
+    float wobble_min_ = 1.0f;
+    float wobble_max_ = 0.0f;
+    uint8_t wobble_count_ = 0;
+    uint32_t last_wobble_us_ = 0;
+    bool last_direction_up_ = true;
+    bool harmonic_called_ = false;
+    bool modulation_called_ = false;
+    bool mute_candidate_ = false;
+    ContactState contact_state_ = ContactState::Released;
 };
-#endif
-
-#ifdef SENSOR_MAKEY
-/**
- * MaKey-style touch sensor: digital input with debounce + guard.
- *
- * Classroom note: give the player a foil/velcro wrist ground so the pull-up
- * has a solid reference. `guard_us_` keeps accidental double plucks at bay and
- * the simple debounce keeps all narration visible in the serial plotter.
- */
-class MakeySensorGuarded : public Sensor {
- public:
-  void begin() override {
-    pinMode(kMakeyPin, INPUT_PULLUP);
-  }
-
-  SensorSample read() override {
-    uint32_t now = micros();
-    if (now - last_read_us_ < guard_us_) return last_sample_;
-    last_read_us_ = now;
-
-    bool touch = digitalRead(kMakeyPin) == LOW;  // MaKey shorts to ground
-    // Debounce using a tiny integrator so hand jitter does not look like a bow.
-    debounce_state_ = 0.9f * debounce_state_ + 0.1f * (touch ? 1.0f : 0.0f);
-    float normalized = debounce_state_;
-
-    last_sample_ = {normalized, now};
-    return last_sample_;
-  }
-
- private:
-  static const uint8_t kMakeyPin = 2;  // MaKey output wired here (internal pullup enabled)
-  const uint16_t guard_us_ = 2000;     // 2ms guard to avoid chatter
-
-  uint32_t last_read_us_ = 0;
-  float debounce_state_ = 0.0f;
-  SensorSample last_sample_{0.0f, 0};
-};
-#endif
-
-// ---- Time-of-Flight proximity sketch ----------------------------------------
-// This intentionally mirrors the simple optical stub so the same calibration
-// flow works: pick a pin, read raw depth, map to 0..1, and narrate every tradeoff.
-#ifdef SENSOR_TOF
-class TimeOfFlightSensor : public Sensor {
- public:
-  void begin() override {
-    // Pin/PWR notes: real ToF breakouts (VL53L0X, TMF8801, etc.) use I2C. Here we
-    // map the analog envelope from a helper board onto A2 to keep the demo
-    // solderable and readable in-class. Swap the pin when moving to a true I2C
-    // driver; keep the function shape identical so GestureEngine stays agnostic.
-    pinMode(A2, INPUT);
-  }
-  SensorSample read() override {
-    int raw = analogRead(A2);  // e.g., 0..1023. Replace with mm reading / 4096.0 for I2C parts.
-    // Calibrate like a lab notebook: expose the bias and smoothing knobs. Students
-    // can anchor a “hand at 15 cm” pose and tune the filter and scaling live.
-    static float y = 0.0f;
-    float x = constrain(raw / 1023.0f, 0.0f, 1.0f);
-    y = 0.85f * y + 0.15f * x;  // slightly faster than optical to catch hand waves
-    // Cheap floor clamp for noisy rooms; edit in class if your sensor never
-    // truly rests at 0.0 while idle.
-    if (y < 0.02f) y = 0.0f;
-    return {y, micros()};
-  }
-};
-#endif
-
-// ---- Piezo contact microphone sketch ----------------------------------------
-// The piezo is the scrappy friend of the lab: it needs a bias resistor and a
-// clamp diode. We AC-couple by subtracting the mid-rail estimate so this class
-// outputs a unipolar 0..1 envelope the GestureEngine can digest.
-#ifdef SENSOR_PIEZO
-class PiezoSensor : public Sensor {
- public:
-  void begin() override {
-    pinMode(A3, INPUT);
-    pinMode(13, OUTPUT);  // re-use the onboard LED to show when peaks land
-  }
-  SensorSample read() override {
-    static float bias = 0.5f;  // mid-rail estimate in normalized units
-    int raw = analogRead(A3);
-    float x = constrain(raw / 1023.0f, 0.0f, 1.0f);
-    bias = 0.999f * bias + 0.001f * x;  // slow bias tracker; tweak in calibration session
-    float swing = fabs(x - bias) * 2.2f;  // exaggerate small hits; clip later
-    float env = constrain(swing, 0.0f, 1.0f);
-    digitalWrite(13, env > 0.4f);  // punk-rock peak lamp
-    return {env, micros()};
-  }
-};
-#endif
-
-// ---- Passive infrared (PIR) motion sketch ----------------------------------
-// PIR modules latch high when they detect warm bodies moving. We deglitch the
-// output and add a slow decay so the serial plots show a “motion envelope”
-// instead of binary edges. Keep the warm-up and guard intervals narratable.
-#ifdef SENSOR_PIR
-class PirSensor : public Sensor {
- public:
-  void begin() override {
-    pinMode(kPirPin, INPUT);  // many PIR boards expose a digital gate; some are 3.3 V only
-    warmup_start_ms_ = millis();
-  }
-
-  SensorSample read() override {
-    uint32_t now_us = micros();
-    if (!warmed_up()) {
-      // Most PIRs need 10–30 seconds to stabilize; keep the plot calm until then.
-      last_sample_ = {0.0f, now_us};
-      return last_sample_;
-    }
-
-    bool raw_motion = digitalRead(kPirPin) == HIGH;
-    float x = raw_motion ? 1.0f : 0.0f;
-    // Exponential decay so a single person pass shows as a hill, not a square wave.
-    env_ = 0.92f * env_ + 0.08f * x;
-    // Guard window to avoid rapid re-triggers from onboard comparators that chatter.
-    if (now_us - last_read_us_ < guard_us_) return last_sample_;
-    last_read_us_ = now_us;
-
-    last_sample_ = {env_, now_us};
-    return last_sample_;
-  }
-
- private:
-  static const uint8_t kPirPin = 4;    // swap per build; keep on an interrupt-capable pin if you later move to ISRs
-  const uint32_t warmup_ms_ = 30000;   // adjust if your module stabilizes faster/slower
-  const uint32_t guard_us_ = 20000;    // 20 ms to smooth comparator chatter
-
-  uint32_t warmup_start_ms_ = 0;
-  float env_ = 0.0f;
-  uint32_t last_read_us_ = 0;
-  SensorSample last_sample_{0.0f, 0};
-
-  bool warmed_up() const { return (millis() - warmup_start_ms_) > warmup_ms_; }
-};
-#endif
-
-// ---- Electret microphone (analog envelope) ----------------------------------
-// An electret capsule + bias resistor into an analog pin gives an AC waveform.
-// We track the DC bias, rectify, and expose a smoothed envelope for the
-// GestureEngine. This keeps calibration visible: bias speed, gain, and clamp.
-#ifdef SENSOR_ELECTRET
-class ElectretMicSensor : public Sensor {
- public:
-  void begin() override {
-    pinMode(kMicPin, INPUT);
-    // Pre-charge bias with a tiny average to avoid a jump on first loop.
-    float seed = 0.5f;
-    for (int i = 0; i < 8; ++i) {
-      seed = 0.75f * seed + 0.25f * sample_raw();
-      delay(2);
-    }
-    bias_ = seed;
-  }
-
-  SensorSample read() override {
-    uint32_t now = micros();
-    float x = sample_raw();
-    // AC coupling: follow bias slowly, measure swing fast.
-    bias_ = 0.9994f * bias_ + 0.0006f * x;  // tweak live if the room hums
-    float swing = fabs(x - bias_) * gain_;
-    env_ = 0.88f * env_ + 0.12f * constrain(swing, 0.0f, 1.0f);
-    // Small floor clamp to avoid whisper-noise. Bump lower if you need pianissimo.
-    if (env_ < 0.01f) env_ = 0.0f;
-    return {env_, now};
-  }
-
- private:
-  static const uint8_t kMicPin = A4;  // analog envelope input; keep wiring short
-  const float gain_ = 3.5f;           // adjust alongside bias speed during calibration
-
-  float bias_ = 0.5f;
-  float env_ = 0.0f;
-
-  float sample_raw() { return constrain(analogRead(kMicPin) / 1023.0f, 0.0f, 1.0f); }
-};
-#endif
-
-// ---- I2S microphone (digital PDM/PCM) ---------------------------------------
-// Some classrooms already have digital mics (SPH0645, ICS-43434). We read a
-// burst of samples from the I2S bus, compute an envelope, and expose the same
-// 0..1 intensity the GestureEngine expects. Swap sample rate / bit depth per
-// board; the smoothing constants are meant to be twiddled aloud.
-#ifdef SENSOR_I2S_MIC
-#include <I2S.h>
-
-class I2SMicSensor : public Sensor {
- public:
-  void begin() override {
-    // Default to 16 kHz mono; adjust for your part. If begin() fails, keep
-    // reading zeros so the rest of the firmware stays predictable in class.
-    if (!I2S.begin(I2S_PHILIPS_MODE, sample_rate_, bits_)) {
-      ready_ = false;
-    } else {
-      ready_ = true;
-    }
-  }
-
-  SensorSample read() override {
-    uint32_t now = micros();
-    if (!ready_) return {0.0f, now};
-
-    int32_t total = 0;
-    int16_t sample = 0;
-    uint16_t count = 0;
-    while (I2S.available() && count < window_samples_) {
-      sample = static_cast<int16_t>(I2S.read());
-      total += abs(sample);
-      ++count;
-    }
-
-    float avg = (count > 0) ? (total / static_cast<float>(count)) : 0.0f;
-    // Normalize 16-bit PCM to 0..1 and overdrive slightly for quiet rooms.
-    float normalized = constrain((avg / 32768.0f) * gain_, 0.0f, 1.0f);
-    env_ = 0.9f * env_ + 0.1f * normalized;
-    return {env_, now};
-  }
-
- private:
-  const int sample_rate_ = 16000;
-  const int bits_ = 16;
-  const uint16_t window_samples_ = 64;  // ~4 ms at 16 kHz; short for fast articulation
-  const float gain_ = 2.5f;
-
-  bool ready_ = false;
-  float env_ = 0.0f;
-};
-#endif
 
 // ---- Mapping -----------------------------------------------------------------
 // Map gestures to MIDI: notes from a small pentatonic set, CC1 for bow energy.
@@ -545,20 +356,10 @@ Sensor* g_sensor = nullptr;        // Assigned in setup() based on the compile-t
  */
 void setup() {
   MIDI.begin(MIDI_CHANNEL_OMNI);
-  // Choose sensor path
-  #ifdef SENSOR_OPTICAL
-    static OpticalSensor sensor_impl;
-  #elif defined(SENSOR_CAPACITIVE)
-    static CapacitiveSensorCalibrated sensor_impl;
-  #elif defined(SENSOR_MAKEY)
-    static MakeySensorGuarded sensor_impl;
-  #elif defined(SENSOR_TOF)
-    static TimeOfFlightSensor sensor_impl;
-  #elif defined(SENSOR_PIEZO)
-    static PiezoSensor sensor_impl;
-  #endif
-  g_sensor = &sensor_impl;
-  g_sensor->begin();
+  g_sensor = make_sensor();
+  if (g_sensor != nullptr) {
+    g_sensor->begin();
+  }
   Serial.begin(SERIAL_BAUD);
   delay(500);
   Serial.println("{\"firmware\":\"StringField\",\"version\":\"0.2-dev\",\"serial\":\"ready\"}");
@@ -572,6 +373,7 @@ void setup() {
  */
 void loop() {
   pump_serial_commands();
+  if (g_sensor == nullptr) return;
   SensorSample s = g_sensor->read();
   Gesture g = g_engine.update(s);
 
