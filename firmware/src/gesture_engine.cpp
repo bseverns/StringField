@@ -52,10 +52,13 @@ Gesture GestureEngine::update(const SensorSample& s) {
   Gesture g = Gesture::Idle;
   if (contact_ && !prev) {
     uint32_t dt = s.micros - last_onset_us_;
-    if (dt < p_.min_retrigger_us) {
+    if (dt < p_.scrape_window_us) {
+      g = Gesture::Scrape;
+      last_onset_us_ = s.micros;
+    } else if (dt < p_.min_retrigger_us) {
       g = Gesture::Idle;
     } else {
-      g = (dt < p_.scrape_window_us) ? Gesture::Scrape : Gesture::Pluck;
+      g = Gesture::Pluck;
       last_onset_us_ = s.micros;
     }
   } else if (contact_) {
