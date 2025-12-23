@@ -22,6 +22,11 @@ Path | What’s inside
 `tools/` | Utilities (serial logger, calibration helpers)
 `.github/` | CI to build firmware & lint docs
 
+## CI / test beacons
+- **Gesture brain tested on-host:** `pio test -d firmware -e native` runs Unity cases for the pluck/bow/scrape/harmonic/vibrato heuristics.
+- **Portability check:** CI builds Teensy 4.0 *and* ESP32-S3 targets to prove the sensor abstraction is real, not aspirational.
+- **Formatting sanity:** Prettier watches docs + p5.js sketches; `clang-format` keeps the Processing projector viz from rotting.
+
 ## Runtime note-set auditions (Serial preset browser)
 When you hear someone shout “try it in Hirajōshi!”, you no longer have to recompile.
 

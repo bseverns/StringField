@@ -17,6 +17,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "gesture_engine.h"
+
 // ---- Compile-time selection of sensing path ---------------------------------
 // Define exactly one of these in platformio.ini build_flags, e.g. -D SENSOR_OPTICAL
 #if !defined(SENSOR_OPTICAL) && !defined(SENSOR_CAPACITIVE) && !defined(SENSOR_MAKEY) && !defined(SENSOR_TOF) && !defined(SENSOR_PIEZO) && !defined(SENSOR_PIR) && !defined(SENSOR_ELECTRET) && !defined(SENSOR_I2S_MIC)
@@ -34,21 +36,6 @@ MIDI_CREATE_INSTANCE(usb_serial_class, Serial, MIDI);
 MIDI_CREATE_DEFAULT_INSTANCE();
 #endif
 static const uint8_t kChannel = 1;  // 1-16
-
-// ---- Shared types ------------------------------------------------------------
-/**
- * A single sensor reading with the two pieces of data the gesture engine needs:
- *
- *   • `value`  — a normalized 0..1 intensity. Each sensor implementation is
- *                responsible for translating its raw modality (voltage, touch
- *                capacitance, Makey button, etc.) into this range.
- *   • `micros` — the exact microsecond timestamp that reading was captured so
- *                that onset spacing can be measured without guessing.
- */
-struct SensorSample {
-  float value;
-  uint32_t micros;
-};
 
 // Abstract sensor interface so gesture code doesn't care which hardware we use.
 /**
@@ -383,156 +370,6 @@ class I2SMicSensor : public Sensor {
 };
 #endif
 
-// ---- Gesture Engine ----------------------------------------------------------
-// INTENT: Detect three coarse gestures using only a thresholded stream. Keep
-// all constants named and easy to calibrate.
-/**
- * Tunable gesture thresholds. Treat this like a calibration worksheet: these
- * numbers start as defaults and should be tweaked with students while watching
- * the debugger. The hysteresis (`on_thresh` / `off_thresh`) keeps the contact
- * state stable; the time windows set how fast is "scrape" versus a fresh pluck.
- */
-struct GestureParams {
-  float on_thresh = 0.55f;        // crossing above => "contact"
-  float off_thresh = 0.40f;       // falling below => "release"
-  uint32_t min_retrigger_us = 60000;  // 60ms guard against double plucks
-  uint32_t scrape_window_us = 40000;  // <40ms between mini-onsets => scrape grain
-
-  // Extended gestures (all narratable in class; edit + reflash or push via Serial)
-  float harmonic_peak_min = 0.35f;    // light touch floor; tweak while listening for chime partials
-  float harmonic_peak_max = 0.65f;    // light touch ceiling
-  uint32_t harmonic_hold_us = 70000;  // hold a light touch this long → call it harmonic
-  float harmonic_variation_eps = 0.05f;  // how still the envelope must be to count as a harmonic touch
-
-  float mute_peak_thresh = 0.25f;     // low-amplitude contacts that end early => muted articulation
-  uint32_t mute_window_us = 50000;    // release within this window → treat as mute instead of pluck-off
-  float mute_release_thresh = 0.15f;  // if the release falls below this before rising again, call it a mute
-
-  float tremolo_min_delta = 0.06f;    // minimum swing to count as one wobble
-  uint32_t tremolo_max_period_us = 30000;  // how fast the sign flips must be (<33 Hz)
-  uint32_t tremolo_grace_us = 8000;        // ignore micro-wobbles right at onset; gives players a breath
-  uint8_t wobble_goal = 4;            // how many flips before we declare tremolo/vibrato
-  float vibrato_depth_min = 0.15f;    // deeper swings ⇒ vibrato; shallow ⇒ tremolo
-};
-
-enum class Gesture { Idle, Pluck, Bow, Scrape, Harmonic, Muted, Tremolo, Vibrato };
-
-/**
- * Converts a stream of SensorSamples into semantic gestures. The design goal
- * is to keep the rules audible and debuggable. There is no hidden machine
- * learning here—just explicit timing and hysteresis—so a class can reason about
- * why a particular motion produced "bow" versus "pluck".
- */
-class GestureEngine {
- public:
-  GestureEngine(const GestureParams& p) : p_(p) {}
-  Gesture update(const SensorSample& s) {
-    // Hysteresis for contact state
-    bool prev = contact_;
-    if (!contact_ && s.value >= p_.on_thresh) contact_ = true;
-    if (contact_ && s.value <= p_.off_thresh) contact_ = false;
-
-    // Update per-contact tracking for extended gestures
-    if (contact_ && !prev) {
-      contact_start_us_ = s.micros;
-      peak_value_ = s.value;
-      wobble_min_ = s.value;
-      wobble_max_ = s.value;
-      wobble_count_ = 0;
-      last_wobble_us_ = s.micros;
-      last_direction_up_ = true;
-      harmonic_called_ = false;
-      modulation_called_ = false;
-      mute_candidate_ = false;
-      contact_state_ = ContactState::Attacking;
-    }
-    if (contact_) {
-      peak_value_ = max(peak_value_, s.value);
-      wobble_min_ = min(wobble_min_, s.value);
-      wobble_max_ = max(wobble_max_, s.value);
-      if (contact_state_ == ContactState::Attacking &&
-          (s.micros - contact_start_us_) > p_.tremolo_grace_us) {
-        contact_state_ = ContactState::Sustaining;
-      }
-    }
-
-    // Tremolo/vibrato wobble detection: count sign changes when the swing is loud enough.
-    float delta = s.value - last_value_;
-    bool rising = delta >= 0.0f;
-    if (fabs(delta) >= p_.tremolo_min_delta && contact_state_ == ContactState::Sustaining) {
-      if (rising != last_direction_up_) {
-        uint32_t wobble_dt = s.micros - last_wobble_us_;
-        if (wobble_dt <= p_.tremolo_max_period_us) {
-          ++wobble_count_;
-        } else {
-          wobble_count_ = 1;  // reset if too slow; still count current flip
-        }
-        last_wobble_us_ = s.micros;
-        last_direction_up_ = rising;
-      }
-    }
-    last_value_ = s.value;
-
-    // Onset detection
-    Gesture g = Gesture::Idle;
-    if (contact_ && !prev) {
-      uint32_t dt = s.micros - last_onset_us_;
-      if (dt < p_.min_retrigger_us) {
-        g = Gesture::Idle;  // debounce double strike
-      } else {
-        g = (dt < p_.scrape_window_us) ? Gesture::Scrape : Gesture::Pluck;
-        last_onset_us_ = s.micros;
-      }
-    } else if (contact_) {
-      // Harmonics: require a light touch that stays stable. This prevents loud plucks
-      // from being mis-labeled when the player lingers.
-      bool in_harmonic_band = peak_value_ >= p_.harmonic_peak_min && peak_value_ <= p_.harmonic_peak_max;
-      float wobble_depth = wobble_max_ - wobble_min_;
-      if (!harmonic_called_ && in_harmonic_band && wobble_depth <= p_.harmonic_variation_eps &&
-          (s.micros - contact_start_us_) > p_.harmonic_hold_us) {
-        harmonic_called_ = true;
-        g = Gesture::Harmonic;
-      } else if (!modulation_called_ && wobble_count_ >= p_.wobble_goal) {
-        modulation_called_ = true;  // only announce once per contact so the serial log stays readable
-        g = (wobble_depth >= p_.vibrato_depth_min) ? Gesture::Vibrato : Gesture::Tremolo;
-      } else {
-        // Sustained contact → treat as bow (continuous control)
-        g = Gesture::Bow;
-      }
-      // Track whether the player is drifting toward a mute: low peak and falling envelope.
-      if (peak_value_ <= p_.mute_peak_thresh && s.value <= p_.mute_release_thresh) {
-        mute_candidate_ = true;
-      }
-    } else if (prev && !contact_) {
-      contact_state_ = ContactState::Released;
-      uint32_t hold = s.micros - contact_start_us_;
-      // Quick-touch deadening => mute gesture; otherwise idle falls through to release handling in loop().
-      if (hold <= p_.mute_window_us || mute_candidate_) {
-        g = Gesture::Muted;
-      }
-    }
-    return g;
-  }
-
- private:
-    enum class ContactState { Released, Attacking, Sustaining };
-    GestureParams p_;
-    bool contact_ = false;
-    uint32_t last_onset_us_ = 0;
-    uint32_t contact_start_us_ = 0;
-    float peak_value_ = 0.0f;
-    float last_value_ = 0.0f;
-    float wobble_min_ = 1.0f;
-    float wobble_max_ = 0.0f;
-    uint8_t wobble_count_ = 0;
-    uint32_t last_wobble_us_ = 0;
-    bool last_direction_up_ = true;
-    bool harmonic_called_ = false;
-    bool modulation_called_ = false;
-    bool mute_candidate_ = false;
-    ContactState contact_state_ = ContactState::Released;
-};
-
 // ---- Mapping -----------------------------------------------------------------
 // Map gestures to MIDI: notes from a small pentatonic set, CC1 for bow energy.
 static const uint8_t kMaxNoteSlots = 12;
@@ -714,7 +551,7 @@ void setup() {
   #elif defined(SENSOR_CAPACITIVE)
     static CapacitiveSensorCalibrated sensor_impl;
   #elif defined(SENSOR_MAKEY)
-    static MakeySensorDemo sensor_impl;
+    static MakeySensorGuarded sensor_impl;
   #elif defined(SENSOR_TOF)
     static TimeOfFlightSensor sensor_impl;
   #elif defined(SENSOR_PIEZO)

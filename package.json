@@ -1,0 +1,11 @@
+{
+  "name": "stringfield",
+  "private": true,
+  "devDependencies": {
+    "prettier": "^3.3.2"
+  },
+  "scripts": {
+    "lint:creative": "prettier --check README.md \"docs/**/*.md\" \"software/p5js/**/*.js\"",
+    "lint:processing": "clang-format --dry-run --Werror software/processing/StringFieldViz.pde"
+  }
+}
