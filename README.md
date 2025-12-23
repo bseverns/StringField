@@ -43,19 +43,22 @@ traces sensor → gesture → MIDI mappings.
 ## New gesture palette + calibration cheatsheet
 These additions are meant to be taught live—think of this as a lab whiteboard made text:
 
-- **Harmonics:** light touches (0.35–0.65 normalized) held for ~70 ms become octave-up, glassy notes. Coach students to hover until the debug print says `harmonic` then lift.
-- **Mutes:** quick, low-energy touches (<50 ms or <0.25 peak) cut the sustaining note and emit a short telemetry blip. Great for call-and-response damping drills.
-- **Tremolo/Vibrato:** fast amplitude sign flips map to CC11 (expression) or pitch bend. Shallow wobble depth → tremolo; deeper swing → vibrato. Tune `tremolo_min_delta`, `tremolo_max_period_us`, and `vibrato_depth_min` during rehearsal.
+- **Harmonics:** light touches (0.35–0.65 normalized) held for ~70 ms become octave-up, glassy notes. The GestureEngine now watches for *stillness* (`harmonic_variation_eps`) so the class can hear the moment a touch steadies.
+- **Mutes:** quick, low-energy touches (<50 ms or <0.25 peak) cut the sustaining note and emit a short telemetry blip. A falling envelope below `mute_release_thresh` arms the mute so students see why a brush counts as damping.
+- **Tremolo/Vibrato:** fast amplitude sign flips map to CC11 (expression) or pitch bend. Shallow wobble depth → tremolo; deeper swing → vibrato. A short `tremolo_grace_us` ignores jitter on the very first attack so you can narrate the motion separately from the pluck.
 
 Calibration micro-rituals (two minutes per class):
 1. **Set the contact floor/ceiling** using `on_thresh` / `off_thresh` while watching the Serial feed. Avoid chatter.
-2. **Sweep the light touch band**: lightly graze the sensor and nudge `harmonic_peak_min`/`max` until harmonics trigger without full plucks.
-3. **Mute window sanity**: tap and lift quickly; adjust `mute_window_us` if students have slow reflexes.
-4. **Wobble feel**: shake your finger above the sensor; set `tremolo_min_delta` and `wobble_goal` so tremolo happens at intentional oscillations, not random noise.
+2. **Sweep the light touch band**: lightly graze the sensor and nudge `harmonic_peak_min`/`max` and `harmonic_variation_eps` until harmonics trigger without full plucks.
+3. **Mute window sanity**: tap and lift quickly; adjust `mute_window_us` and `mute_release_thresh` if students have slow reflexes or the room hums.
+4. **Wobble feel**: shake your finger above the sensor; set `tremolo_min_delta`, `tremolo_grace_us`, and `wobble_goal` so tremolo happens at intentional oscillations, not random noise.
 
 ## Sensor stack expansions
-- **Time-of-flight (ToF):** drop in a VL53L0X/TMF8801 board, feed its analog/filtered output to `A2`, and compile with `-D SENSOR_TOF`. The stub maps the depth envelope to 0..1 with a slightly faster low-pass to catch hand waves. Swap in a real I²C driver later without touching `GestureEngine`.
+- **Time-of-flight (ToF):** drop in a VL53L0X/TMF8801 board, feed its analog/filtered output to `A2`, and compile with `-D SENSOR_TOF`. The sensor class now clamps the floor for noisy rooms and keeps the pin-only setup notes inline; swap in a real I²C driver later without touching `GestureEngine`.
 - **Piezo contact mic:** bias a piezo disc with a megaohm resistor, clamp the extremes, and plug into `A3` with `-D SENSOR_PIEZO`. The class can *see* hits via the onboard LED and adjust the `bias` smoothing if the room hum drifts.
+- **PIR motion:** run the PIR gate to a digital pin (`-D SENSOR_PIR`). We purposely wait out the 30s warm-up, then smooth the binary gate into a motion envelope so students can *see* lingering activity instead of a jittery square wave.
+- **Electret mic (analog):** a bias resistor + RC envelope into `A4` (`-D SENSOR_ELECTRET`). The class follows bias slowly, rectifies the swing, and exposes a gain knob so you can narrate why the whisper floor is clamped where it is.
+- **I²S/PDM mic:** for SPH0645/ICS-43434/etc., compile with `-D SENSOR_I2S_MIC`. The stub reads short bursts off I²S, averages absolute amplitude, and outputs a mellow envelope so the rest of the firmware doesn’t care which mic showed up.
 
 ## Highlights
 - **Three (now five) sensing paths** (optical / capacitive / MaKey‑style touch / time‑of‑flight proximity / piezo contact mic) with a common `Sensor` interface.

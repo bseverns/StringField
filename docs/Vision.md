@@ -8,6 +8,6 @@
 - Repairable: local parts, through‑hole where feasible for EDU kits.
 
 **Design Vectors**
-- **Sensing**: optical (reflective IR / time‑of‑flight), capacitive (single‑wire + guard), touch‑to‑ground (MaKey‑style), piezo, hall/flex (later). ToF + piezo stubs now live alongside optical in `firmware/src/main.cpp` with the same pin-first story.
-- **Gesture**: pluck onset, bow direction + speed, scrape granularity; now also mutes, harmonics, tremolo/vibrato so students can perform the vocabulary they already use when describing strings.
+- **Sensing**: optical (reflective IR / time‑of‑flight), capacitive (single‑wire + guard), touch‑to‑ground (MaKey‑style), piezo, PIR, analog electret, I²S/PDM mic, hall/flex (later). Each subclass sits in `firmware/src/main.cpp` with a pin-first story and calibration nudges (warm-up windows, bias followers, envelope clamps) so workshops can tune by feel.
+- **Gesture**: pluck onset, bow direction + speed, scrape granularity; now also mutes, harmonics, tremolo/vibrato so students can perform the vocabulary they already use when describing strings. The GestureEngine keeps explicit states for light‑touch harmonics, wobble‑counted tremolo/vibrato, and envelope‑armed mutes to make the decision path teachable.
 - **Mapping**: scale‑aware note selection; continuous timbre axes; pressure/proximity → CCs; wobble depth → mod/expression or pitch bend. Calibration notes sit next to each threshold so workshops can tune quickly.
