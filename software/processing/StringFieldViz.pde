@@ -1,6 +1,7 @@
 // StringFieldViz (Processing)
-// Gestural debugger for overhead projectors. Paints noisy gradients, velocity arrows,
-// and a state ticker based on JSON lines streamed from the firmware (or the keys below).
+// Gestural debugger for overhead projectors. Paints noisy gradients, velocity
+// arrows, and a state ticker based on JSON lines streamed from the firmware (or
+// the keys below).
 
 import processing.data.*;
 
@@ -10,9 +11,10 @@ String gestureState = "IDLE";
 ArrayList<HistoryItem> history = new ArrayList<HistoryItem>();
 PGraphics noiseLayer;
 
-// -- Lifecycle -----------------------------------------------------------------
-// setup() is Processing's boot hook. Use it to size the canvas, pick a legible
-// font, and prep the off-screen noise layer we reuse every frame.
+// -- Lifecycle
+// ----------------------------------------------------------------- setup() is
+// Processing's boot hook. Use it to size the canvas, pick a legible font, and
+// prep the off-screen noise layer we reuse every frame.
 void setup() {
   size(960, 600);
   frameRate(60);
@@ -20,8 +22,8 @@ void setup() {
   noiseLayer = createGraphics(w, h);
 }
 
-// draw() runs 60 FPS. Every call completely redraws the scene so motion blur and
-// velocity decay feel alive on a projector.
+// draw() runs 60 FPS. Every call completely redraws the scene so motion blur
+// and velocity decay feel alive on a projector.
 void draw() {
   background(18, 12, 40);
   drawNoise();
@@ -80,7 +82,8 @@ void drawVelocityVector() {
   line(centerX, baseY, centerX, baseY - len);
   noStroke();
   fill(255, 90, 90);
-  triangle(centerX - 24, baseY - len + 36, centerX + 24, baseY - len + 36, centerX, baseY - len - 8);
+  triangle(centerX - 24, baseY - len + 36, centerX + 24, baseY - len + 36,
+           centerX, baseY - len - 8);
   fill(255);
   textAlign(CENTER, CENTER);
   textSize(28);
@@ -111,7 +114,8 @@ void drawHistory() {
     float x = 90 + i * cellWidth;
     rect(x, baseY - 24, cellWidth - 20, 52, 12);
     fill(0);
-    text(item.state + "\n" + nf(item.velocity * 127, 1, 0), x + (cellWidth - 20) / 2, baseY + 2);
+    text(item.state + "\n" + nf(item.velocity * 127, 1, 0),
+         x + (cellWidth - 20) / 2, baseY + 2);
   }
 }
 
@@ -130,8 +134,10 @@ void registerState(String state, float vel) {
 // students can trace the error paths without a debugger.
 void ingestLine(String line) {
   JSONObject json = parseJSONObject(line);
-  if (json == null) return;
-  if (!json.hasKey("gesture")) return;
+  if (json == null)
+    return;
+  if (!json.hasKey("gesture"))
+    return;
   float rawValue = json.hasKey("value") ? json.getFloat("value") : 0;
   float vel = constrain(rawValue / 127.0, 0, 1);
   registerState(json.getString("gesture"), vel);
@@ -156,7 +162,8 @@ void keyPressed() {
 class HistoryItem {
   String state;
   float velocity;
-  // Lightweight record type; nothing fancy. Keeping it explicit helps Java newbies.
+  // Lightweight record type; nothing fancy. Keeping it explicit helps Java
+  // newbies.
   HistoryItem(String state, float velocity) {
     this.state = state;
     this.velocity = velocity;

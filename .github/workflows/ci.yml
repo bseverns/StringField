@@ -5,7 +5,24 @@ on:
   pull_request:
 
 jobs:
-  build-teensy:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install formatting deps
+        run: npm install
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - name: Check docs + p5.js formatting
+        run: npm run lint:creative
+      - name: Check Processing sketch formatting
+        run: npm run lint:processing
+
+  firmware-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,5 +32,21 @@ jobs:
           python-version: '3.x'
       - name: Install PlatformIO
         run: pip install platformio
+      - name: Run native gesture tests
+        run: pio test -d firmware -e native
+
+  build-firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [teensy40, esp32s3]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install PlatformIO
+        run: pip install platformio
       - name: Build firmware
-        run: pio run -d firmware -e teensy40
+        run: pio run -d firmware -e ${{ matrix.env }}
