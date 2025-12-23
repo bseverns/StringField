@@ -3,12 +3,12 @@
 Print these and toss them on music stands. They keep the “punk‑rock but consent‑first” vibe while steering the class through the same flow the overlay shows.
 
 ## Quick consent prompts (say verbatim)
-1. "Is everyone ok with us logging **gestures** for the next 5 minutes? The logger is `tools/serial_logger.py` writing JSON lines—no audio." 
+1. "Is everyone ok with us logging **gestures** for the next 5 minutes? The logger is `tools/serial_logger.py` writing CSV rows of the JSON packets—no audio."
 2. "We'll name the file after this session and trash it if anyone wants it gone."
 3. "You can watch the packets mirrored to OSC on the projector; nothing hidden."
 
 ## Serial logger cheat card
-- Start: `python tools/serial_logger.py --port /dev/ttyACM0 --baud 115200 --outfile logs/session.jsonl`
+- Start: `python tools/serial_logger.py /dev/ttyACM0 115200 > logs/session.csv` (only add `--start` if consent is already recorded)
 - Stop: `ctrl+c` when you're done. Announce the stop out loud.
 - Share: show the log path on screen before closing Processing.
 
