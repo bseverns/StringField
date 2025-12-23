@@ -31,6 +31,7 @@ StringField explores the sensation of playing an “imaginary string” stretche
 - **Formatting sanity:** Prettier watches docs + p5.js sketches; `clang-format` keeps the Processing projector viz from rotting.
 
 ## Build kit + educator packet
+
 Want the turnkey, print-and-go version? See [`docs/BuildKit.md`](docs/BuildKit.md) for the finalized BOM, wiring snapshots per sensor stack, flashing steps, calibration micro-rituals, and classroom handouts + first-play lesson plan.
 
 ## Runtime note-set auditions (Serial preset browser)
