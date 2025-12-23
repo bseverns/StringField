@@ -32,7 +32,7 @@ String statusMessage = "press 'n' to pick a serial port";
 int frameCounter = 0;
 
 String[] consentPrompts = {
-  "Ask: ok to log gestures for ~5 min? (uses tools/serial_logger.py → JSONL)",
+  "Ask: ok to log gestures for ~5 min? (tools/serial_logger.py → CSV of JSON)",
   "Name the file + exit plan before logging; delete on request.",
   "Narrate the preset browser: paste JSON notes over serial, no reflash needed.",
 };
@@ -43,6 +43,9 @@ String[] lessonBeats = {
   "3) Swap note sets with the README preset browser steps, listen for change.",
   "4) Pause, review ticker, ask students to predict the next state.",
 };
+
+String loggerCommand = "python tools/serial_logger.py /dev/ttyACM0 115200 > logs/session.csv";
+String presetBrowserSnippet = "{ \"notes\": [60, 63, 67, 70, 74] }";
 
 // --- Lifecycle ---------------------------------------------------------------
 void setup() {
@@ -60,6 +63,8 @@ void draw() {
   drawStatusPanel();
   drawConsentPanel();
   drawLessonBeats();
+  drawLoggerCard();
+  drawPresetBrowserCard();
   frameCounter++;
 }
 
@@ -184,6 +189,40 @@ void drawLessonBeats() {
     text("• " + lessonBeats[i], panelX, y);
     y += 24;
   }
+}
+
+void drawLoggerCard() {
+  float panelX = 30;
+  float panelY = height * 0.6;
+
+  fill(20, 170);
+  noStroke();
+  rect(panelX - 10, panelY - 32, width * 0.44, 120, 12);
+
+  fill(255);
+  textSize(20);
+  text("Serial logger workflow (consent-first)", panelX, panelY);
+  textSize(15);
+  text("Ask first, then run → " + loggerCommand, panelX, panelY + 24);
+  text("Pass --start only if consent already documented. Streams CSV for audits.", panelX, panelY + 44);
+  text("Logger pairs with overlays: projector shows what we're saving and why.", panelX, panelY + 64);
+}
+
+void drawPresetBrowserCard() {
+  float panelX = 30;
+  float panelY = height * 0.78;
+
+  fill(20, 170);
+  noStroke();
+  rect(panelX - 10, panelY - 32, width * 0.44, 120, 12);
+
+  fill(255);
+  textSize(20);
+  text("Preset browser cameo (README flow)", panelX, panelY);
+  textSize(15);
+  text("Paste into serial/ logger terminal → " + presetBrowserSnippet, panelX, panelY + 24);
+  text("Firmware echoes the set; bridge keeps forwarding gestures to OSC synth.", panelX, panelY + 44);
+  text("Narrate the change: no reflash, just a new scale on the fly.", panelX, panelY + 64);
 }
 
 String truncate(String src, int maxLen) {
