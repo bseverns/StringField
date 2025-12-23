@@ -22,6 +22,9 @@ Path | What’s inside
 `tools/` | Utilities (serial logger, calibration helpers)
 `.github/` | CI to build firmware & lint docs
 
+## Build kit + educator packet
+Want the turnkey, print-and-go version? See [`docs/BuildKit.md`](docs/BuildKit.md) for the finalized BOM, wiring snapshots per sensor stack, flashing steps, calibration micro-rituals, and classroom handouts + first-play lesson plan.
+
 ## Runtime note-set auditions (Serial preset browser)
 When you hear someone shout “try it in Hirajōshi!”, you no longer have to recompile.
 
