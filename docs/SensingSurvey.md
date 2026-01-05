@@ -10,3 +10,14 @@
 | **Hall / Flex (later)** | A3144 hall + magnet, flex sensor | position/pressure proxy | alternate mappings | mechanical complexity | optional expansion |
 
 > Implementation note: All sensor paths conform to a common `Sensor` interface so gesture & mapping code doesn’t change when you swap hardware.
+
+## Sensor field notes (fast links)
+
+Each of these is a short, hands‑on guide with wiring notes, RC recipes, calibration rituals, and “what the gestures should feel like.”
+
+- [MaKey‑style Touch‑to‑Ground](Sensors/MakeyTouch.md)
+- [Time‑of‑Flight Proximity](Sensors/TimeOfFlight.md)
+- [Piezo / Contact Mic](Sensors/Piezo.md)
+- [PIR Motion](Sensors/PIR.md)
+- [Electret Mic (Analog)](Sensors/ElectretMic.md)
+- [I²S Digital Mic](Sensors/I2SMic.md)

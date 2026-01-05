@@ -19,13 +19,19 @@ class ElectretMicSensor : public Sensor {
 
   SensorSample read() override {
     uint32_t now = micros();
+    // Expected signal range: biased mic envelope on A4, sampled 0..1023. You want
+    // mid-rail idle (around 0.5 normalized) so the swing has room both ways.
     float x = sample_raw();
     // AC coupling: follow bias slowly, measure swing fast.
     bias_ = 0.9994f * bias_ + 0.0006f * x;  // tweak live if the room hums
     float swing = fabs(x - bias_) * gain_;
+    // Normalization: clamp the rectified swing into 0..1, then smooth to a
+    // performance-friendly envelope.
     env_ = 0.88f * env_ + 0.12f * constrain(swing, 0.0f, 1.0f);
     // Small floor clamp to avoid whisper-noise. Bump lower if you need pianissimo.
     if (env_ < 0.01f) env_ = 0.0f;
+    // Common failure modes: missing bias resistor (floating pin noise),
+    // long unshielded leads (50/60 Hz hum), or gain too high (perma-clipped 1.0).
     return {env_, now};
   }
 
@@ -45,4 +51,3 @@ Sensor& get_electret_sensor() {
 }
 
 #endif  // SENSOR_ELECTRET
-

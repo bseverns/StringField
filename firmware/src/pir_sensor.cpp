@@ -17,14 +17,20 @@ class PirSensor : public Sensor {
       return last_sample_;
     }
 
+    // Expected signal range: digital HIGH/LOW gate from the PIR comparator.
     bool raw_motion = digitalRead(kPirPin) == HIGH;
     float x = raw_motion ? 1.0f : 0.0f;
+    // Normalization: convert the binary gate into a smoothed 0..1 envelope so
+    // gestures feel like motion energy rather than a square wave.
     // Exponential decay so a single person pass shows as a hill, not a square wave.
     env_ = 0.92f * env_ + 0.08f * x;
     // Guard window to avoid rapid re-triggers from onboard comparators that chatter.
     if (now_us - last_read_us_ < guard_us_) return last_sample_;
     last_read_us_ = now_us;
 
+    // Common failure modes: powering a 3.3 V-only PIR from 5 V (stuck high),
+    // heat vents/sunlight causing false triggers, or mounting aimed at the floor
+    // so it never sees lateral motion.
     last_sample_ = {env_, now_us};
     return last_sample_;
   }
@@ -48,4 +54,3 @@ Sensor& get_pir_sensor() {
 }
 
 #endif  // SENSOR_PIR
-
