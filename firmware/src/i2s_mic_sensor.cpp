@@ -32,7 +32,7 @@ class I2SMicSensor : public Sensor {
     float avg = (count > 0) ? (total / static_cast<float>(count)) : 0.0f;
     // Normalize 16-bit PCM to 0..1 and overdrive slightly for quiet rooms.
     float normalized = constrain((avg / 32768.0f) * gain_, 0.0f, 1.0f);
-    // Normalization: absolute-value average -> 0..1 energy envelope with a short
+    // Normalization behavior: absolute-value average -> 0..1 energy envelope with a short
     // smoothing filter so percussive taps still show up as peaks.
     env_ = 0.9f * env_ + 0.1f * normalized;
     // Common failure modes: I2S.begin() never locks (ready_ false => silence),

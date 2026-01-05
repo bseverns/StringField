@@ -25,7 +25,7 @@ class ElectretMicSensor : public Sensor {
     // AC coupling: follow bias slowly, measure swing fast.
     bias_ = 0.9994f * bias_ + 0.0006f * x;  // tweak live if the room hums
     float swing = fabs(x - bias_) * gain_;
-    // Normalization: clamp the rectified swing into 0..1, then smooth to a
+    // Normalization behavior: clamp the rectified swing into 0..1, then smooth to a
     // performance-friendly envelope.
     env_ = 0.88f * env_ + 0.12f * constrain(swing, 0.0f, 1.0f);
     // Small floor clamp to avoid whisper-noise. Bump lower if you need pianissimo.
