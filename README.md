@@ -17,6 +17,7 @@ StringField explores the sensation of playing an “imaginary string” stretche
 | Path | What’s inside |
 | --- | --- |
 | `docs/` | Design briefs, play paradigms, sensing survey, assumption ledger, roadmap, **Touch-to-Ground Tuning Kit**, **Classroom Code Tour** |
+| `docs/Sensors/` | Per‑sensor field notes: wiring, RC values, calibration rituals, expected gesture behavior |
 | `firmware/` | PlatformIO project(s). Teensy 4.0 by default; optional ESP32 target |
 | `software/` | Processing + p5.js visualizers and bridges (now with gesture debugger) |
 | `hardware/` | Prototype notes per sensing modality + example BOM stubs |
@@ -69,11 +70,14 @@ Calibration micro-rituals (two minutes per class):
 
 ## Sensor stack expansions
 
-- **Time-of-flight (ToF):** drop in a VL53L0X/TMF8801 board, feed its analog/filtered output to `A2`, and compile with `-D SENSOR_TOF`. The sensor class now clamps the floor for noisy rooms and keeps the pin-only setup notes inline; swap in a real I²C driver later without touching `GestureEngine`.
-- **Piezo contact mic:** bias a piezo disc with a megaohm resistor, clamp the extremes, and plug into `A3` with `-D SENSOR_PIEZO`. The class can _see_ hits via the onboard LED and adjust the `bias` smoothing if the room hum drifts.
-- **PIR motion:** run the PIR gate to a digital pin (`-D SENSOR_PIR`). We purposely wait out the 30s warm-up, then smooth the binary gate into a motion envelope so students can _see_ lingering activity instead of a jittery square wave.
-- **Electret mic (analog):** a bias resistor + RC envelope into `A4` (`-D SENSOR_ELECTRET`). The class follows bias slowly, rectifies the swing, and exposes a gain knob so you can narrate why the whisper floor is clamped where it is.
-- **I²S/PDM mic:** for SPH0645/ICS-43434/etc., compile with `-D SENSOR_I2S_MIC`. The stub reads short bursts off I²S, averages absolute amplitude, and outputs a mellow envelope so the rest of the firmware doesn’t care which mic showed up.
+Need the hands‑on wiring + calibration notes? Start at `docs/Sensors/` and then go deep per sensor:
+
+- **MaKey‑style touch‑to‑ground:** [field notes](docs/Sensors/MakeyTouch.md) for grounding, debounce, and “touch plateau” behavior.
+- **Time‑of‑flight (ToF):** [field notes](docs/Sensors/TimeOfFlight.md). Drop in a VL53L0X/TMF8801 board, feed its analog/filtered output to `A2`, and compile with `-D SENSOR_TOF`. The sensor class clamps the floor for noisy rooms and keeps the pin-only setup notes inline; swap in a real I²C driver later without touching `GestureEngine`.
+- **Piezo contact mic:** [field notes](docs/Sensors/Piezo.md). Bias a piezo disc with a megaohm resistor, clamp the extremes, and plug into `A3` with `-D SENSOR_PIEZO`. The class can _see_ hits via the onboard LED and adjust the `bias` smoothing if the room hum drifts.
+- **PIR motion:** [field notes](docs/Sensors/PIR.md). Run the PIR gate to a digital pin (`-D SENSOR_PIR`). We purposely wait out the 30s warm-up, then smooth the binary gate into a motion envelope so students can _see_ lingering activity instead of a jittery square wave.
+- **Electret mic (analog):** [field notes](docs/Sensors/ElectretMic.md). A bias resistor + RC envelope into `A4` (`-D SENSOR_ELECTRET`). The class follows bias slowly, rectifies the swing, and exposes a gain knob so you can narrate why the whisper floor is clamped where it is.
+- **I²S/PDM mic:** [field notes](docs/Sensors/I2SMic.md). For SPH0645/ICS-43434/etc., compile with `-D SENSOR_I2S_MIC`. The stub reads short bursts off I²S, averages absolute amplitude, and outputs a mellow envelope so the rest of the firmware doesn’t care which mic showed up.
 
 ## Highlights
 
