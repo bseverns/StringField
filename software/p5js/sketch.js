@@ -6,6 +6,13 @@ let gestureState = 'idle';
 let velocity = 0;
 let stateHistory = [];
 let noiseLayer;
+let serialPort;
+let serialReader;
+let serialBuffer = '';
+let serialStatus = 'serial: idle';
+let serialStatusSpan;
+let serialButton;
+let serialHud;
 
 // -- Lifecycle -----------------------------------------------------------------
 // setup() runs once when the sketch boots. Treat it like lab warm-up: lay out
@@ -16,7 +23,10 @@ function setup() {
   textFont('monospace');
   noiseLayer = createGraphics(width, height);
   noiseLayer.clear();
-  // TODO: hook up navigator.serial or WebMIDI; call ingestSerialLine(line) per message.
+  // WebSerial hookup: minimal overlay + reader loop. The UI stays visible so
+  // you can teach the "click → pick port → data flows" story in real time.
+  setupSerialHud();
+  setupSerialListeners();
 }
 
 // draw() fires 60 times per second. Every call repaints the entire scene so the
@@ -122,6 +132,153 @@ function registerState(state, vel) {
   stateHistory.unshift({ state: state.toUpperCase(), velocity: velocity });
   if (stateHistory.length > 6) {
     stateHistory.pop();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WebSerial helpers. These are intentionally chatty so the sketch doubles as a
+// teaching tool about how browser serial works. Punk-rock transparency > magic.
+
+function setupSerialHud() {
+  serialHud = createDiv();
+  serialHud.style('position', 'absolute');
+  serialHud.style('top', '16px');
+  serialHud.style('right', '16px');
+  serialHud.style('padding', '12px 16px');
+  serialHud.style('background', 'rgba(5, 5, 20, 0.72)');
+  serialHud.style('border', '1px solid rgba(255, 255, 255, 0.2)');
+  serialHud.style('border-radius', '10px');
+  serialHud.style('color', '#f5f1ff');
+  serialHud.style('font-family', 'monospace');
+  serialHud.style('font-size', '14px');
+  serialHud.style('backdrop-filter', 'blur(4px)');
+  serialHud.style('z-index', '10');
+
+  serialButton = createButton('Connect Serial');
+  serialButton.parent(serialHud);
+  serialButton.style('margin-right', '12px');
+  serialButton.style('padding', '6px 12px');
+  serialButton.style('border', '1px solid rgba(255, 255, 255, 0.4)');
+  serialButton.style('background', 'rgba(255, 90, 90, 0.2)');
+  serialButton.style('color', '#fff');
+  serialButton.style('cursor', 'pointer');
+  serialButton.mousePressed(toggleSerialConnection);
+
+  serialStatusSpan = createSpan(serialStatus);
+  serialStatusSpan.parent(serialHud);
+
+  if (!('serial' in navigator)) {
+    serialStatus = 'serial: unsupported (use Chrome/Edge)';
+    updateSerialStatus();
+    serialButton.attribute('disabled', true);
+    serialButton.style('opacity', '0.4');
+    serialButton.style('cursor', 'not-allowed');
+  }
+}
+
+function setupSerialListeners() {
+  if (!('serial' in navigator)) return;
+  navigator.serial.addEventListener('disconnect', (event) => {
+    if (event.target === serialPort) {
+      disconnectSerial('serial: cable yanked');
+    }
+  });
+}
+
+function updateSerialStatus() {
+  if (serialStatusSpan) {
+    serialStatusSpan.html(serialStatus);
+  }
+}
+
+async function toggleSerialConnection() {
+  if (serialPort) {
+    await disconnectSerial('serial: disconnected');
+    return;
+  }
+  await connectSerial();
+}
+
+async function connectSerial() {
+  if (!('serial' in navigator)) return;
+  try {
+    serialStatus = 'serial: requesting port...';
+    updateSerialStatus();
+    serialPort = await navigator.serial.requestPort();
+    await serialPort.open({ baudRate: 115200 });
+    serialStatus = 'serial: connected';
+    updateSerialStatus();
+    serialButton.html('Disconnect Serial');
+    startSerialReadLoop();
+  } catch (err) {
+    serialStatus = 'serial: connection cancelled';
+    updateSerialStatus();
+    serialPort = null;
+  }
+}
+
+async function disconnectSerial(reason) {
+  serialStatus = reason || 'serial: disconnected';
+  updateSerialStatus();
+  if (serialReader) {
+    try {
+      await serialReader.cancel();
+    } catch (err) {
+      // ignore: cancelling a closed reader is fine
+    }
+    serialReader.releaseLock();
+    serialReader = null;
+  }
+  if (serialPort) {
+    try {
+      await serialPort.close();
+    } catch (err) {
+      // ignore: unplugged or already closed
+    }
+    serialPort = null;
+  }
+  serialBuffer = '';
+  if (serialButton) {
+    serialButton.html('Connect Serial');
+  }
+}
+
+async function startSerialReadLoop() {
+  if (!serialPort?.readable) {
+    serialStatus = 'serial: no readable stream';
+    updateSerialStatus();
+    return;
+  }
+  const decoder = new TextDecoderStream();
+  const readableClosed = serialPort.readable.pipeTo(decoder.writable);
+  serialReader = decoder.readable.getReader();
+
+  try {
+    while (true) {
+      const { value, done } = await serialReader.read();
+      if (done) break;
+      serialBuffer += value;
+      const lines = serialBuffer.split('\n');
+      serialBuffer = lines.pop();
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length > 0) {
+          ingestSerialLine(trimmed);
+        }
+      }
+    }
+  } catch (err) {
+    serialStatus = 'serial: read error';
+    updateSerialStatus();
+  } finally {
+    try {
+      await readableClosed;
+    } catch (err) {
+      // ignore pipe closure errors; we already handled status updates
+    }
+    if (serialPort) {
+      disconnectSerial('serial: stream closed');
+    }
   }
 }
 
