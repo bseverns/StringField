@@ -6,6 +6,10 @@ This bridge reads the firmware's JSON gesture packets over serial and forwards t
 - **OSC address:** `/stringfield/gesture` with `[gesture (string), value (0-127), normalized (0-1)]`
 - **Shortcuts:** `n` = rotate serial port, `p` = send OSC ping, `h` = print handout beats in the console
 
+## If you only have 10 minutes
+
+Jump to [`docs/FirstSession.md`](FirstSession.md). It’s the fastest end‑to‑end ritual: plug in hardware, flash firmware, open serial, run this bridge, and bring up the visualizer with a known‑good packet so you can prove the pipeline before the class walks in.
+
 ## Setup
 
 1. Install Processing 4.x and add the **oscP5** library (Sketch → Import Library → Add Library → search "oscP5").
