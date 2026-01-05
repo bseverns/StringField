@@ -122,6 +122,17 @@ Print 2-up on letter paper, double-sided:
 6. **Swap sensors (5–10 min):** Trade stacks between squads without changing the gesture mapping; reflect on what stayed stable (interface) vs. what shifted (thresholds).
 7. **Exit ticket (5 min):** Each student writes one mapping tweak they’d ship next class and snaps the calibrated thresholds into the handout.
 
+## Optional sensor squads (advanced / week‑two build)
+
+If your crew wants a bigger palette, these are ready in firmware and documented in `hardware/prototypes/`:
+
+- **Time‑of‑flight proximity:** `hardware/prototypes/time_of_flight_proximity/README.md` (compile with `-D SENSOR_TOF`).
+- **PIR motion gate:** `hardware/prototypes/pir_motion_gate/README.md` (compile with `-D SENSOR_PIR`).
+- **Electret mic envelope:** `hardware/prototypes/electret_mic_envelope/README.md` (compile with `-D SENSOR_ELECTRET`).
+- **I²S/PDM mic:** `hardware/prototypes/i2s_mic/README.md` (compile with `-D SENSOR_I2S_MIC`).
+
+These are great for second‑session experiments: swap them in without changing mappings, then compare how each sensor shapes the same gesture vocabulary.
+
 ## Facilitator notes
 
 - Keep jumpers color-coded per sensor (optical = purple/black, capacitive = white/green, piezo = yellow) so classroom chaos stays legible.

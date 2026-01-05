@@ -101,6 +101,14 @@ Calibration micro-rituals (two minutes per class):
 
 > See `docs/Roadmap.md` for dated milestones and test gates.
 
+## What to expand next (punk‑rock wishlist)
+
+Three concrete expansions we’d love to see land — each one keeps the “studio notebook + teaching guide” ethos intact:
+
+- **Deepen the gesture vocabulary:** add classroom‑narratable heuristics for harmonics, mutes, and tremolo/vibrato, with calibration micro‑rituals written right next to the code and echoed in docs.
+- **Grow the sensor front‑ends:** promote ToF, piezo, PIR, electret, and I²S mic paths from stubs into fully documented `Sensor` modules with wiring notes, tuning tips, and failure modes.
+- **Build the educator bridge:** ship the OSC/Serial bridge + lesson packet as a turnkey, print‑and‑perform tool so workshops can run without improvising glue code.
+
 ## Repo conventions
 
 - **Docs‑first:** If it’s not in `docs/`, it’s a rumor.
