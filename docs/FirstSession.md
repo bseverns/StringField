@@ -54,7 +54,7 @@ Run it and keep it side‑by‑side with the bridge. The point is to make the sy
 If you want a guaranteed “does the pipeline even work?” probe, paste this single line into the serial monitor:
 
 ```json
-{"gesture":"pluck","value":96}
+{ "gesture": "pluck", "value": 96 }
 ```
 
 ### Expected visual response
