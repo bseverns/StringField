@@ -17,7 +17,7 @@ StringField explores the sensation of playing an “imaginary string” stretche
 | Path | What’s inside |
 | --- | --- |
 | `docs/` | Design briefs, play paradigms, sensing survey, assumption ledger, roadmap, **Touch-to-Ground Tuning Kit**, **Classroom Code Tour** |
-| `docs/Sensors/` | Per‑sensor field notes: wiring, RC values, calibration rituals, expected gesture behavior |
+| `docs/Sensors/` | Per‑sensor field notes: wiring, RC values, calibration rituals, expected gesture behavior (start at [`docs/Sensors/README.md`](docs/Sensors/README.md)) |
 | `firmware/` | PlatformIO project(s). Teensy 4.0 by default; optional ESP32 target |
 | `software/` | Processing + p5.js visualizers and bridges (now with gesture debugger) |
 | `hardware/` | Prototype notes per sensing modality + example BOM stubs |
@@ -75,6 +75,8 @@ Calibration micro-rituals (two minutes per class):
 ## Sensor stack expansions
 
 Need the hands‑on wiring + calibration notes? Start at `docs/Sensors/` and then go deep per sensor:
+
+- **Sensor field notes index:** [`docs/Sensors/README.md`](docs/Sensors/README.md) for the short menu + teaching flow.
 
 - **MaKey‑style touch‑to‑ground:** [field notes](docs/Sensors/MakeyTouch.md) for grounding, debounce, and “touch plateau” behavior.
 - **Time‑of‑flight (ToF):** [field notes](docs/Sensors/TimeOfFlight.md). Drop in a VL53L0X/TMF8801 board, feed its analog/filtered output to `A2`, and compile with `-D SENSOR_TOF`. The sensor class clamps the floor for noisy rooms and keeps the pin-only setup notes inline; swap in a real I²C driver later without touching `GestureEngine`.

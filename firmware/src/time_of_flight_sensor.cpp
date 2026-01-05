@@ -20,7 +20,8 @@ class TimeOfFlightSensor : public Sensor {
     // Calibrate like a lab notebook: expose the bias and smoothing knobs. Students
     // can anchor a “hand at 15 cm” pose and tune the filter and scaling live.
     static float y = 0.0f;
-    // Normalization: map raw ADC to 0..1 so gesture logic stays sensor-agnostic.
+    // Normalization behavior: map raw ADC to 0..1 so gesture logic stays sensor-agnostic,
+    // then low-pass to smooth jitter without erasing quick dips.
     float x = constrain(raw / 1023.0f, 0.0f, 1.0f);
     y = 0.85f * y + 0.15f * x;  // slightly faster than optical to catch hand waves
     // Cheap floor clamp for noisy rooms; edit in class if your sensor never

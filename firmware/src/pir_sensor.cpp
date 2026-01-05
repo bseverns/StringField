@@ -20,7 +20,7 @@ class PirSensor : public Sensor {
     // Expected signal range: digital HIGH/LOW gate from the PIR comparator.
     bool raw_motion = digitalRead(kPirPin) == HIGH;
     float x = raw_motion ? 1.0f : 0.0f;
-    // Normalization: convert the binary gate into a smoothed 0..1 envelope so
+    // Normalization behavior: convert the binary gate into a smoothed 0..1 envelope so
     // gestures feel like motion energy rather than a square wave.
     // Exponential decay so a single person pass shows as a hill, not a square wave.
     env_ = 0.92f * env_ + 0.08f * x;

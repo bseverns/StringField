@@ -15,6 +15,7 @@
 
 Each of these is a short, hands‑on guide with wiring notes, RC recipes, calibration rituals, and “what the gestures should feel like.”
 
+- Start here for the index: [Sensor Field Notes](Sensors/README.md)
 - [MaKey‑style Touch‑to‑Ground](Sensors/MakeyTouch.md)
 - [Time‑of‑Flight Proximity](Sensors/TimeOfFlight.md)
 - [Piezo / Contact Mic](Sensors/Piezo.md)
