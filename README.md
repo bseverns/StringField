@@ -34,6 +34,10 @@ StringField explores the sensation of playing an “imaginary string” stretche
 
 Want the turnkey, print-and-go version? See [`docs/BuildKit.md`](docs/BuildKit.md) for the finalized BOM, wiring snapshots per sensor stack, flashing steps, calibration micro-rituals, and classroom handouts + first-play lesson plan.
 
+## First Session
+
+Need the fastest “we’re alive” path? The first‑play ritual lives in [`docs/FirstSession.md`](docs/FirstSession.md). It’s a 10‑minute, no‑excuses script: connect hardware, flash firmware, open serial, run the bridge, fire up the visualizer, and paste a known‑good gesture packet to prove the loop.
+
 ## Runtime note-set auditions (Serial preset browser)
 
 When you hear someone shout “try it in Hirajōshi!”, you no longer have to recompile.
