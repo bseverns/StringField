@@ -146,7 +146,8 @@ function handleGestureBlob(msg) {
 }
 
 // Quick keyboard cheats so students can rehearse the visuals without hardware.
-// 'P' → pluck, 'S' → scrape, 'B' → bow, 'R' → release.
+// 'P' → pluck, 'S' → scrape, 'B' → bow, 'R' → release,
+// 'H' → harmonic, 'M' → mute, 'T' → tremolo, 'V' → vibrato.
 function keyPressed() {
   if (key === 'p' || key === 'P') {
     registerState('pluck', random(0.6, 1.0));
@@ -159,5 +160,17 @@ function keyPressed() {
   }
   if (key === 'r' || key === 'R') {
     registerState('release', 0);
+  }
+  if (key === 'h' || key === 'H') {
+    registerState('harmonic', random(0.3, 0.6));
+  }
+  if (key === 'm' || key === 'M') {
+    registerState('mute', random(0.05, 0.2));
+  }
+  if (key === 't' || key === 'T') {
+    registerState('tremolo', random(0.4, 0.8));
+  }
+  if (key === 'v' || key === 'V') {
+    registerState('vibrato', random(0.4, 0.9));
   }
 }

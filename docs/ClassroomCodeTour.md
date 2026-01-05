@@ -4,8 +4,8 @@ _Read this aloud with your class._ These notes map source files to the gestures 
 
 ## Firmware (`firmware/src/main.cpp`)
 
-- **Sensor abstraction:** Look for the `Sensor` base class and the three demo implementations (`OpticalSensor`, `CapacitiveSensorDemo`, `MakeySensorDemo`). Each has paragraph-level comments that spell out what the pins do and how raw data gets normalized.
-- **Gesture engine:** The `GestureEngine` section is a manifesto on thresholds, hysteresis, and timing. Every variable is commented with the trade-off it represents so students can tweak constants and immediately see the effect.
+- **Sensor abstraction:** Look for the `Sensor` base class and the concrete implementations in `firmware/src/*_sensor.cpp` (optical, capacitive, MaKey touch, time‑of‑flight, piezo, PIR, electret, I²S mic). Each class is a teaching artifact: pin notes, bias followers, warm‑up guards, and envelope clamps are all spelled out in prose so students see the hardware trade‑offs.
+- **Gesture engine:** The `GestureEngine` section is a manifesto on thresholds, hysteresis, and timing. It now narrates the extended palette—harmonics, mutes, tremolo, vibrato—so students can trace how "light, steady touch" turns into harmonics or how wobble depth becomes tremolo vs. vibrato.
 - **Serial preset browser:** Functions like `parse_note_set_json` and `pump_serial_commands` have doc blocks that narrate error handling, buffer limits, and why we echo acknowledgements. Show the class how this keeps the firmware robust without a heavy JSON library.
 - **Loop narration:** `setup()` and `loop()` carry docstrings that mirror the performative steps (sense → classify → map → narrate). Use those as chapter headings in your lesson.
 
