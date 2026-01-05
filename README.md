@@ -39,6 +39,14 @@ Want the turnkey, print-and-go version? See [`docs/BuildKit.md`](docs/BuildKit.m
 
 Need the fastest “we’re alive” path? The first‑play ritual lives in [`docs/FirstSession.md`](docs/FirstSession.md). It’s a 10‑minute, no‑excuses script: connect hardware, flash firmware, open serial, run the bridge, fire up the visualizer, and paste a known‑good gesture packet to prove the loop.
 
+## 90‑minute onboarding bootcamp
+
+Want a structured ramp for new collaborators? [`docs/Onboarding90Min.md`](docs/Onboarding90Min.md) is a one‑session syllabus: get the pipeline working, narrate sensors, tune one gesture knob, and leave able to teach the system.
+
+## Gesture vocabulary (read‑aloud heuristics)
+
+Need the “say it out loud” version of the gesture engine? [`docs/GestureVocabulary.md`](docs/GestureVocabulary.md) ties the human feel of pluck/bow/scrape/harmonic/mute/tremolo/vibrato to the exact firmware knobs.
+
 ## Runtime note-set auditions (Serial preset browser)
 
 When you hear someone shout “try it in Hirajōshi!”, you no longer have to recompile.
