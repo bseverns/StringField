@@ -1,15 +1,10 @@
 # Gesture Vocabulary (Narratable Heuristics)
 
-_This is the “read it out loud” guide to the gesture engine. It explains **why**
-each gesture exists, **how** we detect it, and **which knobs** to tune when
-reality gets noisy. Pair this with `firmware/src/gesture_engine.cpp` and the
-parameter table in `firmware/include/gesture_engine.h`._
+_This is the “read it out loud” guide to the gesture engine. It explains **why** each gesture exists, **how** we detect it, and **which knobs** to tune when reality gets noisy. Pair this with `firmware/src/gesture_engine.cpp` and the parameter table in `firmware/include/gesture_engine.h`._
 
 ## Big idea: gestures are stories, not equations
 
-We don’t look for “perfect signals.” We look for **behavior** that players can
-repeat and instructors can narrate. Every gesture is a small, human‑readable
-rule with a few thresholds you can tweak while the room listens.
+We don’t look for “perfect signals.” We look for **behavior** that players can repeat and instructors can narrate. Every gesture is a small, human‑readable rule with a few thresholds you can tweak while the room listens.
 
 ---
 
@@ -30,6 +25,7 @@ rule with a few thresholds you can tweak while the room listens.
 ## The narratable rules (human language first)
 
 ### 1) Pluck
+
 **Say this:**  
 “A pluck is a clear crossing into contact. If it happens too soon after the last one, we ignore it. If it’s close enough to a prior onset, we call it a scrape instead.”
 
@@ -39,6 +35,7 @@ rule with a few thresholds you can tweak while the room listens.
 ---
 
 ### 2) Scrape
+
 **Say this:**  
 “A scrape is just a **rapid series of onsets**. The time between them is shorter than a pluck.”
 
@@ -48,6 +45,7 @@ rule with a few thresholds you can tweak while the room listens.
 ---
 
 ### 3) Bow
+
 **Say this:**  
 “Bow is the default: it’s what we call continuous contact when nothing else is true. It’s sustained energy with no special wobble or harmonic signature.”
 
@@ -57,20 +55,23 @@ Mostly `on_thresh` and `off_thresh`, plus smoothing in your sensor front‑end.
 ---
 
 ### 4) Harmonic
+
 **Say this:**  
 “A harmonic is a **light, steady touch**. You hit a gentle peak, then hold it still long enough to earn the glassy tone.”
 
 **Knobs that matter:**  
 `harmonic_peak_min`, `harmonic_peak_max`, `harmonic_hold_us`, `harmonic_variation_eps`
 
-**Calibration ritual:**  
-1. Lightly graze the sensor.  
-2. Nudge `harmonic_peak_min`/`max` until harmonics trigger without full plucks.  
+**Calibration ritual:**
+
+1. Lightly graze the sensor.
+2. Nudge `harmonic_peak_min`/`max` until harmonics trigger without full plucks.
 3. Tighten `harmonic_variation_eps` until the system demands stillness.
 
 ---
 
 ### 5) Muted
+
 **Say this:**  
 “A mute is a **short, damped touch**. If the contact ends quickly, or the signal drops below the mute floor, we call it muted.”
 
@@ -83,6 +84,7 @@ Ask the class to “tap and vanish” — quick contact then immediate release.
 ---
 
 ### 6) Tremolo
+
 **Say this:**  
 “Tremolo is a **fast, shallow wobble**. The engine counts sign flips and calls it once it sees enough.”
 
@@ -92,6 +94,7 @@ Ask the class to “tap and vanish” — quick contact then immediate release.
 ---
 
 ### 7) Vibrato
+
 **Say this:**  
 “Vibrato is tremolo with more depth. Same wobble count, bigger swing.”
 
@@ -102,8 +105,7 @@ Ask the class to “tap and vanish” — quick contact then immediate release.
 
 ## Threshold cheat‑sheet (firmware knobs)
 
-These live in `firmware/include/gesture_engine.h`. Keep these names in your
-teaching script so students can go from “feel” to “code” without translation.
+These live in `firmware/include/gesture_engine.h`. Keep these names in your teaching script so students can go from “feel” to “code” without translation.
 
 - **Contact gates:** `on_thresh`, `off_thresh`
 - **Time guards:** `min_retrigger_us`, `scrape_window_us`, `harmonic_hold_us`, `mute_window_us`, `tremolo_grace_us`
