@@ -6,6 +6,8 @@ If you want the fastest path: pick a sensor below, wire it, compile with the mat
 
 ## The sensor menu
 
+- **Optical reflective IR:** [`OpticalReflective.md`](OpticalReflective.md)
+- **Capacitive single‑wire:** [`CapacitiveSingleWire.md`](CapacitiveSingleWire.md)
 - **MaKey‑style touch‑to‑ground:** [`MakeyTouch.md`](MakeyTouch.md)
 - **Time‑of‑flight proximity:** [`TimeOfFlight.md`](TimeOfFlight.md)
 - **Piezo / contact mic:** [`Piezo.md`](Piezo.md)
